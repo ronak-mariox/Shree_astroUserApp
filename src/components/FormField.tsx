@@ -1,0 +1,86 @@
+import React from 'react';
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type StyleProp,
+  type TextInputProps,
+  type ViewStyle,
+} from 'react-native';
+
+import { colors, hairline, radius, spacing, typography } from '../theme';
+
+const FIELD_HEIGHT = 49.992;
+
+type FormFieldProps = TextInputProps & {
+  label: string;
+  /** Emoji shown before the label, as the birth-details fields do. */
+  labelIcon?: string;
+  /** Helper line under the field. */
+  hint?: string;
+  containerStyle?: StyleProp<ViewStyle>;
+};
+
+/**
+ * Labelled text field used throughout the onboarding wizard
+ * (Figma nodes 180:88670, 180:88838).
+ */
+export function FormField({
+  label,
+  labelIcon,
+  hint,
+  containerStyle,
+  style,
+  ...inputProps
+}: FormFieldProps) {
+  return (
+    <View style={containerStyle}>
+      <View style={styles.labelRow}>
+        {labelIcon !== undefined && (
+          <Text style={styles.label}>{labelIcon}</Text>
+        )}
+        <Text style={styles.label}>{label}</Text>
+      </View>
+
+      <TextInput
+        accessibilityLabel={label}
+        placeholderTextColor={colors.text.placeholder}
+        style={[styles.input, style]}
+        {...inputProps}
+      />
+
+      {hint !== undefined && <Text style={styles.hint}>{hint}</Text>}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingBottom: spacing.sm,
+  },
+  label: {
+    ...typography.fieldLabel,
+    color: colors.text.primary,
+  },
+  input: {
+    ...typography.input,
+    height: FIELD_HEIGHT,
+    borderRadius: radius.input,
+    borderWidth: hairline,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface,
+    color: colors.text.primary,
+    paddingLeft: 16.755,
+    paddingRight: 16.755,
+    paddingVertical: 0,
+  },
+  hint: {
+    ...typography.caption,
+    color: colors.text.muted,
+    paddingTop: 6,
+  },
+});
