@@ -10,24 +10,26 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AstrologerCard } from '../components/AstrologerCard';
+import {
+  AstrologerCard,
+  type Astrologer,
+} from '../components/AstrologerCard';
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
-import { ConsultationRow } from '../components/ConsultationRow';
+import {
+  ConsultationRow,
+  type Consultation,
+} from '../components/ConsultationRow';
 import { DailyHoroscopeCard } from '../components/DailyHoroscopeCard';
 import { PlanetPositionsCard } from '../components/PlanetPositionsCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { HEADER_STARS, StarField } from '../components/StarField';
 import { BellIcon } from '../components/icons/BellIcon';
 import { SearchIcon } from '../components/icons/SearchIcon';
-import {
-  astrologers,
-  profile,
-  quickActions,
-  recentConsultations,
-  wallet,
-  type QuickAction,
-} from '../data/home';
+import { quickActions, type QuickAction } from '../data/home';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { avatarOf, portraitOf } from '../utils/images';
 import {
   colors,
   designFrame,
@@ -52,6 +54,12 @@ type HomeScreenProps = {
   onProfilePress?: () => void;
   onAddFunds?: () => void;
   onQuickAction?: (action: QuickAction) => void;
+  /** Today's reading, tapped from the card under the header. */
+  onOpenHoroscope?: () => void;
+  /** One past session in the Recent Consultations feed. */
+  onSelectConsultation?: (consultation: Consultation) => void;
+  /** Opens the tapped astrologer's profile — the card, or either of its actions. */
+  onSelectAstrologer?: (astrologer: Astrologer) => void;
   onSeeAllAstrologers?: () => void;
   onViewAllConsultations?: () => void;
 };
@@ -69,9 +77,48 @@ export function HomeScreen({
   onProfilePress,
   onAddFunds,
   onQuickAction,
+  onOpenHoroscope,
+  onSelectConsultation,
+  onSelectAstrologer,
   onSeeAllAstrologers,
   onViewAllConsultations,
 }: HomeScreenProps) {
+  /** Everything this screen prints, in one call. */
+  const home = useApi(() => api.fetchHome(), []);
+  /** The carousel is the directory's first few, best rated first. */
+  const directory = useApi(() => api.fetchAstrologers({ sort: 'rating', limit: 8 }), []);
+
+  const me = home.data?.profile;
+  const balance = home.data?.wallet.balance ?? 0;
+
+  /** The zodiac line under the name, once birth details are on file. */
+  const zodiacLine = me?.sunSign
+    ? `${me.sunSign}${me.dateOfBirth ? ` · ${api.shortDate(me.dateOfBirth)}` : ''}`
+    : 'Add your birth details';
+
+  /** Directory cards, in the shape the carousel draws. */
+  const astrologers = (directory.data?.items ?? []).map(row => ({
+    id: row.id,
+    name: row.name,
+    speciality: api.joinLabels(row.expertise) || 'Astrologer',
+    experience: row.experienceYears ? `${row.experienceYears} yrs exp` : '',
+    rate: row.rates.chat ? `₹${row.rates.chat.now}/min` : 'Rate not set',
+    photo: portraitOf(row.photo),
+    online: row.online,
+  }));
+
+  /** The last few sessions, in the shape the row draws. */
+  const recentConsultations = (home.data?.recentConsultations ?? []).map(row => ({
+    id: row.id,
+    astrologer: row.astrologer ?? 'Astrologer',
+    summary: `${row.channel === 'call' ? 'Voice' : 'Chat'} Consultation · ${api.minutesOf(
+      row.durationSeconds,
+    )}`,
+    date: api.shortDate(row.endedAt),
+    amount: api.rupees(row.amount),
+    photo: portraitOf(row.photo),
+  }));
+
   const insets = useSafeAreaInsets();
 
   return (
@@ -98,11 +145,11 @@ export function HomeScreen({
           >
             <View style={styles.identityRow}>
               <View style={styles.identity}>
-                <Text style={styles.greeting}>{profile.greeting}</Text>
-                <Text style={styles.name}>{profile.name}</Text>
+                <Text style={styles.greeting}>✦ Namaste</Text>
+                <Text style={styles.name}>{me?.name ?? ''}</Text>
                 <View style={styles.zodiacRow}>
-                  <Text style={styles.zodiacGlyph}>{profile.zodiacGlyph}</Text>
-                  <Text style={styles.zodiacLine}>{profile.zodiacLine}</Text>
+                  <Text style={styles.zodiacGlyph}>{me?.sunSign ? '✦' : ''}</Text>
+                  <Text style={styles.zodiacLine}>{zodiacLine}</Text>
                 </View>
               </View>
 
@@ -140,7 +187,7 @@ export function HomeScreen({
                     to={colors.gradient.avatarTo}
                   />
                   <Image
-                    source={profile.photo}
+                    source={avatarOf(me?.avatarUrl)}
                     style={styles.avatar}
                     resizeMode="cover"
                   />
@@ -150,9 +197,9 @@ export function HomeScreen({
 
             <View style={styles.walletCard}>
               <View style={styles.walletCopy}>
-                <Text style={styles.walletLabel}>{wallet.label}</Text>
-                <Text style={styles.walletBalance}>{wallet.balance}</Text>
-                <Text style={styles.walletHint}>{wallet.hint}</Text>
+                <Text style={styles.walletLabel}>WALLET BALANCE</Text>
+                <Text style={styles.walletBalance}>{api.rupees(balance)}</Text>
+                <Text style={styles.walletHint}>Available for consultations</Text>
               </View>
 
               <Pressable
@@ -171,7 +218,7 @@ export function HomeScreen({
         </View>
 
         <View style={styles.body}>
-          <DailyHoroscopeCard />
+          <DailyHoroscopeCard horoscope={home.data?.horoscope} onPress={onOpenHoroscope} />
 
           <View style={styles.section}>
             <SectionHeader title="Quick Actions" />
@@ -219,13 +266,21 @@ export function HomeScreen({
               style={styles.astrologerScroller}
             >
               {astrologers.map(astrologer => (
-                <AstrologerCard key={astrologer.id} astrologer={astrologer} />
+                <AstrologerCard
+                  key={astrologer.id}
+                  astrologer={astrologer}
+                  onPress={() => onSelectAstrologer?.(astrologer)}
+                  // Chat and Call both start on the profile, where the rates
+                  // and the two "…Now" CTAs are.
+                  onChatPress={() => onSelectAstrologer?.(astrologer)}
+                  onCallPress={() => onSelectAstrologer?.(astrologer)}
+                />
               ))}
             </ScrollView>
           </View>
 
           <View style={styles.section}>
-            <PlanetPositionsCard />
+            <PlanetPositionsCard positions={home.data?.planetPositions} />
           </View>
 
           <View style={styles.section}>
@@ -239,6 +294,7 @@ export function HomeScreen({
                 <ConsultationRow
                   key={consultation.id}
                   consultation={consultation}
+                  onPress={() => onSelectConsultation?.(consultation)}
                 />
               ))}
             </View>

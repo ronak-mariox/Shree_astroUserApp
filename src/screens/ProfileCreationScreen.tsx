@@ -15,6 +15,14 @@ import { FormField } from '../components/FormField';
 import { GenderSelector, type Gender } from '../components/GenderSelector';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { StepIndicator } from '../components/StepIndicator';
+import type { PhotoAsset } from '../services/auth';
+import {
+  isFormValid,
+  validateEmail,
+  validateName,
+  validatePhone,
+  type FieldError,
+} from '../utils/validation';
 import { colors, designFrame, spacing, typography } from '../theme';
 
 /** Top padding Figma drew, measured from the top of the status bar. */
@@ -28,8 +36,15 @@ export type Profile = {
 };
 
 type ProfileCreationScreenProps = {
-  onContinue?: (profile: Profile) => void;
-  onPickPhoto?: () => void;
+  /** Hands step one up; nothing is sent until birth details are saved. */
+  onContinue?: (profile: Profile, photo?: PhotoAsset) => void;
+  /**
+   * Opens the picker and resolves to whatever was chosen, or to nothing if the
+   * user backed out. App.tsx passes `pickProfilePhoto`, which asks camera or
+   * gallery and handles every refusal itself — so this screen only ever sees
+   * an asset or `undefined`.
+   */
+  onPickPhoto?: () => Promise<PhotoAsset | undefined> | PhotoAsset | undefined | void;
 };
 
 /**
@@ -45,6 +60,46 @@ export function ProfileCreationScreen({
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [gender, setGender] = useState<Gender>();
+  /** Errors stay hidden until Continue is pressed, then follow every keystroke. */
+  const [submitted, setSubmitted] = useState(false);
+  /** The chosen photo, carried to the register call at the end of the wizard. */
+  const [photo, setPhoto] = useState<PhotoAsset>();
+
+  const errors: Record<string, FieldError> = {
+    fullName: validateName(fullName),
+    email: validateEmail(email),
+    phoneNumber: validatePhone(phoneNumber),
+    gender: gender === undefined ? 'Select a gender' : undefined,
+  };
+  const shown = (field: keyof typeof errors) =>
+    submitted ? errors[field] : undefined;
+
+  const handlePickPhoto = async () => {
+    /**
+     * The picker reports its own failures, so there is nothing to show here —
+     * but a rejection must not escape, or it becomes an unhandled promise and
+     * the tap silently does nothing.
+     */
+    try {
+      const picked = await onPickPhoto?.();
+      if (picked) {
+        setPhoto(picked);
+      }
+    } catch (error) {
+      console.error('[ProfileCreation] picking a photo failed:', error);
+    }
+  };
+
+  const handleContinue = () => {
+    setSubmitted(true);
+    if (!isFormValid(errors)) {
+      return;
+    }
+    onContinue?.(
+      { fullName: fullName.trim(), email: email.trim(), phoneNumber, gender },
+      photo,
+    );
+  };
 
   return (
     <View style={styles.screen}>
@@ -73,7 +128,7 @@ export function ProfileCreationScreen({
             <StepIndicator step={1} style={styles.steps} />
 
             <View style={styles.avatar}>
-              <AvatarPicker onPress={onPickPhoto} />
+              <AvatarPicker uri={photo?.uri} onPress={handlePickPhoto} />
             </View>
           </View>
 
@@ -85,6 +140,7 @@ export function ProfileCreationScreen({
               placeholder="Arjun Sharma"
               autoComplete="name"
               textContentType="name"
+              error={shown('fullName')}
             />
             <FormField
               label="Email Address"
@@ -95,6 +151,7 @@ export function ProfileCreationScreen({
               autoCapitalize="none"
               autoComplete="email"
               textContentType="emailAddress"
+              error={shown('email')}
             />
             <FormField
               label="Phone Number"
@@ -104,6 +161,7 @@ export function ProfileCreationScreen({
               keyboardType="phone-pad"
               autoComplete="tel"
               textContentType="telephoneNumber"
+              error={shown('phoneNumber')}
             />
 
             <View>
@@ -113,14 +171,15 @@ export function ProfileCreationScreen({
                 onChange={setGender}
                 style={styles.genderOptions}
               />
+              {shown('gender') !== undefined && (
+                <Text style={styles.error}>{errors.gender}</Text>
+              )}
             </View>
 
             <PrimaryButton
               label="Continue →"
               style={styles.continue}
-              onPress={() =>
-                onContinue?.({ fullName, email, phoneNumber, gender })
-              }
+              onPress={handleContinue}
             />
           </View>
         </ScrollView>
@@ -165,6 +224,11 @@ const styles = StyleSheet.create({
   },
   genderOptions: {
     paddingTop: 10,
+  },
+  error: {
+    ...typography.caption,
+    color: colors.status.debit,
+    paddingTop: 6,
   },
   continue: {
     marginTop: spacing.sm,

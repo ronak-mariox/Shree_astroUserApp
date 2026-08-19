@@ -18,7 +18,7 @@ export const radius = {
   button: 9,
   buttonOutline: 16,
   /** Social buttons and OTP boxes. */
-  field: 14,
+  field: 12,
   /** Text fields and info cards on the onboarding wizard. */
   input: 16,
   /** Warm summary card and past-consultation row. */
@@ -47,7 +47,11 @@ export const radius = {
   icon: 12,
   /** Large icon tile (header badge, option row). */
   iconLarge: 16,
+  /** A wheel picker's Cancel / Submit pair, and the busy sheet's buttons. */
+  action: 10,
   card: 20,
+  /** The connecting card's generous corner (Figma node 180:105059). */
+  connecting: 30,
   sheet: 32,
   pill: 999,
 } as const;

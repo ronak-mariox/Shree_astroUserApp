@@ -19,6 +19,7 @@ import {
   quickSelectAmounts,
   wallet,
 } from '../data/wallet';
+import { validateAmount } from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -54,6 +55,7 @@ export function AddMoneyScreen({
   const [amount, setAmount] = useState(String(initialAmount));
 
   const numericAmount = Number(amount) || 0;
+  const amountError = validateAmount(numericAmount, amountLimits);
 
   return (
     <View style={styles.screen}>
@@ -108,10 +110,14 @@ export function AddMoneyScreen({
 
             <View style={styles.rule} />
 
-            <Text style={styles.limits}>
-              Min ₹{amountLimits.min} · Max ₹
-              {amountLimits.max.toLocaleString('en-IN')}
-            </Text>
+            {amountError === undefined ? (
+              <Text style={styles.limits}>
+                Min ₹{amountLimits.min} · Max ₹
+                {amountLimits.max.toLocaleString('en-IN')}
+              </Text>
+            ) : (
+              <Text style={styles.limitsInvalid}>{amountError}</Text>
+            )}
           </View>
 
           <Text style={styles.quickSelectLabel}>Quick Select</Text>
@@ -155,7 +161,12 @@ export function AddMoneyScreen({
           <PrimaryButton
             label={`Proceed to Pay ₹${numericAmount}`}
             style={styles.cta}
-            onPress={() => onProceed?.(numericAmount)}
+            disabled={amountError !== undefined}
+            onPress={() => {
+              if (amountError === undefined) {
+                onProceed?.(numericAmount);
+              }
+            }}
           />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -240,6 +251,12 @@ const styles = StyleSheet.create({
   limits: {
     ...typography.caption,
     color: colors.text.muted,
+    textAlign: 'center',
+    paddingTop: 10,
+  },
+  limitsInvalid: {
+    ...typography.caption,
+    color: colors.status.debit,
     textAlign: 'center',
     paddingTop: 10,
   },

@@ -18,6 +18,16 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { CameraIcon } from '../components/icons/CameraIcon';
 import { account } from '../data/profile';
 import {
+  isFormValid,
+  validateDateOfBirth,
+  validateEmail,
+  validateName,
+  validatePhone,
+  validatePlace,
+  validateTimeOfBirth,
+  type FieldError,
+} from '../utils/validation';
+import {
   colors,
   designFrame,
   radius,
@@ -57,6 +67,27 @@ export function EditProfileScreen({
   const [timeOfBirth, setTimeOfBirth] = useState(account.timeOfBirth);
   const [placeOfBirth, setPlaceOfBirth] = useState(account.placeOfBirth);
   const [gender, setGender] = useState<Gender>('male');
+  /** Errors stay hidden until Save is pressed, then follow every keystroke. */
+  const [submitted, setSubmitted] = useState(false);
+
+  const errors: Record<string, FieldError> = {
+    fullName: validateName(fullName),
+    email: validateEmail(email),
+    phone: validatePhone(phone),
+    dateOfBirth: validateDateOfBirth(dateOfBirth),
+    timeOfBirth: validateTimeOfBirth(timeOfBirth),
+    placeOfBirth: validatePlace(placeOfBirth),
+  };
+  const shown = (field: keyof typeof errors) =>
+    submitted ? errors[field] : undefined;
+
+  const handleSave = () => {
+    setSubmitted(true);
+    if (!isFormValid(errors)) {
+      return;
+    }
+    onSave?.();
+  };
 
   return (
     <View style={styles.screen}>
@@ -113,6 +144,7 @@ export function EditProfileScreen({
               value={fullName}
               onChangeText={setFullName}
               autoComplete="name"
+              error={shown('fullName')}
             />
             <FormField
               label="Email Address"
@@ -121,6 +153,7 @@ export function EditProfileScreen({
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
+              error={shown('email')}
             />
             <FormField
               label="Phone Number"
@@ -128,6 +161,7 @@ export function EditProfileScreen({
               onChangeText={setPhone}
               keyboardType="phone-pad"
               autoComplete="tel"
+              error={shown('phone')}
             />
             <FormField
               label="Date of Birth"
@@ -135,6 +169,7 @@ export function EditProfileScreen({
               value={dateOfBirth}
               onChangeText={setDateOfBirth}
               keyboardType="numbers-and-punctuation"
+              error={shown('dateOfBirth')}
             />
             <FormField
               label="Time of Birth"
@@ -142,12 +177,14 @@ export function EditProfileScreen({
               value={timeOfBirth}
               onChangeText={setTimeOfBirth}
               hint="Enter approximate time if exact time is unknown"
+              error={shown('timeOfBirth')}
             />
             <FormField
               label="Place of Birth"
               labelIcon="📍"
               value={placeOfBirth}
               onChangeText={setPlaceOfBirth}
+              error={shown('placeOfBirth')}
             />
 
             <View>
@@ -163,7 +200,7 @@ export function EditProfileScreen({
             <PrimaryButton
               label="Save Changes"
               style={styles.save}
-              onPress={onSave}
+              onPress={handleSave}
             />
           </View>
         </ScrollView>

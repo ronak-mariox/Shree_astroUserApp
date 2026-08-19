@@ -1,7 +1,6 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { planetPositions } from '../data/home';
 import { colors, hairline, radius, spacing, typography } from '../theme';
 import { BrandGradient } from './BrandGradient';
 
@@ -12,7 +11,18 @@ const CHIP_HEIGHT = 93;
  * (Figma node 180:89115). The chips scroll sideways — Figma clips them at the
  * card's edge, so the row is wider than the frame by design.
  */
-export function PlanetPositionsCard() {
+export type PlanetPositions = {
+  date: string;
+  planets: ReadonlyArray<{ glyph: string; name: string; sign: string }>;
+};
+
+type PlanetPositionsCardProps = {
+  positions?: PlanetPositions | null;
+};
+
+export function PlanetPositionsCard({ positions }: PlanetPositionsCardProps) {
+  const planetPositions = positions ?? { date: '', planets: [] };
+
   return (
     <View style={styles.card}>
       <BrandGradient

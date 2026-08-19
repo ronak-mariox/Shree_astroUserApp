@@ -19,6 +19,8 @@ type FormFieldProps = TextInputProps & {
   labelIcon?: string;
   /** Helper line under the field. */
   hint?: string;
+  /** What is wrong with the value — replaces the hint and reddens the outline. */
+  error?: string;
   containerStyle?: StyleProp<ViewStyle>;
 };
 
@@ -30,6 +32,7 @@ export function FormField({
   label,
   labelIcon,
   hint,
+  error,
   containerStyle,
   style,
   ...inputProps
@@ -45,12 +48,18 @@ export function FormField({
 
       <TextInput
         accessibilityLabel={label}
+        // Read out with the field, so the message is not sight-only.
+        accessibilityHint={error ?? hint}
         placeholderTextColor={colors.text.placeholder}
-        style={[styles.input, style]}
+        style={[styles.input, error !== undefined && styles.inputInvalid, style]}
         {...inputProps}
       />
 
-      {hint !== undefined && <Text style={styles.hint}>{hint}</Text>}
+      {error !== undefined ? (
+        <Text style={styles.error}>{error}</Text>
+      ) : (
+        hint !== undefined && <Text style={styles.hint}>{hint}</Text>
+      )}
     </View>
   );
 }
@@ -78,9 +87,17 @@ const styles = StyleSheet.create({
     paddingRight: 16.755,
     paddingVertical: 0,
   },
+  inputInvalid: {
+    borderColor: colors.status.debit,
+  },
   hint: {
     ...typography.caption,
     color: colors.text.muted,
+    paddingTop: 6,
+  },
+  error: {
+    ...typography.caption,
+    color: colors.status.debit,
     paddingTop: 6,
   },
 });

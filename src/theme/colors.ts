@@ -44,8 +44,18 @@ export const colors = {
     positiveTintBorderSoft: 'rgba(187, 247, 208, 0.25)',
     /** Outline of the wallet's "+ Add Money" button. */
     positiveStrong: '#04963A',
-    /** Money leaving the wallet. */
+    /** Money leaving the wallet, and the connecting card's cancel cross. */
     debit: '#EF4444',
+    /** The red the connecting card outlines that cross with (node 180:105066). */
+    cancelMark: '#FF0004',
+    /** The green a remaining wait time counts down in (node 180:105060). */
+    waitClock: '#1CBF73',
+    /** The filled part of the connecting bar (node 180:105065). */
+    connectingProgress: '#3949AB',
+    /** The double tick beside a delivered message (node 180:118760). */
+    sent: '#34B7F1',
+    /** The wallet pill on the chat header (node 180:121932). */
+    walletPill: '#04963A',
     /** Tile behind a debit, and the "Total Spent" panel. */
     debitTint: '#FEE2E2',
     debitTintBorder: 'rgba(239, 68, 68, 0.13)',
@@ -90,6 +100,14 @@ export const colors = {
     inactive: '#D1D5DB',
     /** Text-input placeholder. */
     placeholder: 'rgba(31, 41, 55, 0.5)',
+    /** Wheel-picker values and its title (Figma node 180:98372). */
+    picker: '#4E4E4E',
+    /** Its "Cancel" label. */
+    pickerMuted: '#CDCDCD',
+    /** A form label on the chat intake form — `karmaguru blue-200`. */
+    intakeLabel: '#989DB5',
+    /** The chat composer's placeholder (Figma node 180:121951). */
+    composerHint: '#D3D1D1',
     /** Ink used by the astrologer card's Chat button. */
     ink: '#1D262D',
     /** Body copy inside a chat bubble. */
@@ -147,6 +165,14 @@ export const colors = {
     strong: '#000000',
     /** Default card / field outline. */
     subtle: '#E5E7EB',
+    /** Rules above and below a wheel's selected row (node 180:98379). */
+    picker: '#8B8B8B',
+    /** Outline of the wheel's "Cancel" button. */
+    pickerAction: '#1D262D',
+    /** A chat-intake field outline — `karmaguru blue-400`. */
+    intakeField: '#4B557E',
+    /** The chosen gender pill on that form (node 180:94979). */
+    intakeSelected: '#C8102E',
     /** OTP boxes while the section is switched off. */
     muted: '#F3F4F6',
     /** Card highlighted because it became actionable. */
@@ -211,6 +237,16 @@ export const colors = {
   shadow: '#000000',
   /** Warm glow under the header badge — rgba(255, 78, 0, 0.3). */
   glow: '#FF4E00',
+  /** Dims the screen behind a dialog — Figma's flat black at half strength. */
+  scrim: 'rgba(0, 0, 0, 0.5)',
+  /** Blush band behind the connecting card's portrait (node 180:105061). */
+  surfaceBlush: '#FFF9F9',
+  /** The seeker's own chat bubble (Figma node 180:118806). */
+  surfaceBubbleOwn: '#FFF3F5',
+  /** The cream sheet the conversation is drawn on (node 180:118751). */
+  surfaceChat: '#FFFCF7',
+  /** Outline of the chat composer (node 180:121946). */
+  borderComposer: '#E7E7E7',
 } as const;
 
 /** Fades a `#RRGGBB` token to an `rgba()` string. */

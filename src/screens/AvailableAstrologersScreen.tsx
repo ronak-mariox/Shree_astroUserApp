@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -14,6 +14,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
+import { ConsultFilterAppliedDialog } from '../components/ConsultFilterAppliedDialog';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { portraitOf } from '../utils/images';
+import { ConsultFilterSheet } from '../components/ConsultFilterSheet';
 import { ArrowLeftIcon } from '../components/icons/ArrowLeftIcon';
 import {
   CarouselDotsIcon,
@@ -37,7 +42,6 @@ import {
 } from '../components/icons/ConsultIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import {
-  consultAstrologers,
   consultBanner,
   consultCategories,
   consultPalette,
@@ -46,6 +50,11 @@ import {
   type ConsultCategory,
   type ConsultMode,
 } from '../data/consult';
+import {
+  defaultConsultFilters,
+  sortConsultAstrologers,
+  type ConsultFilterSelection,
+} from '../data/consultFilters';
 import { colors, fontFamily, radius } from '../theme';
 
 /**
@@ -55,6 +64,18 @@ import { colors, fontFamily, radius } from '../theme';
  * drew — a 369pt card carrying three fixed stat columns — survive intact on
  * narrower and wider phones alike.
  */
+/**
+ * The category chips are the seeker's words; the API stores the topic ids from
+ * models/constants.js.
+ */
+const CATEGORY_TOPICS: Record<Exclude<ConsultCategory, 'all'>, string> = {
+  love: 'love-relationship',
+  education: 'education',
+  marriage: 'marriage',
+  wealth: 'wealth-finance',
+  health: 'health',
+};
+
 const DESIGN_WIDTH = 402;
 const DESIGN_STATUS_BAR = 43.945;
 /** Top of the header row, measured from the top of the status bar. */
@@ -138,10 +159,79 @@ export function AvailableAstrologersScreen({
   const [mode, setMode] = useState<ConsultMode>('chat');
   const [category, setCategory] = useState<ConsultCategory>('all');
 
-  const results = consultAstrologers.filter(
-    astrologer =>
-      category === 'all' || astrologer.categories.includes(category),
+  /** The Sort & Filter sheet, and the receipt it leaves behind on Apply. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [applied, setApplied] = useState<ConsultFilterSelection>(
+    defaultConsultFilters,
   );
+  const [appliedShown, setAppliedShown] = useState(false);
+  const receipt = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      if (receipt.current !== undefined) {
+        clearTimeout(receipt.current);
+      }
+    },
+    [],
+  );
+
+  /**
+   * The sheet's selections are ids the API already understands, so the whole
+   * filter runs on the server rather than over one page of rows.
+   *
+   * `experience`, `price` and `ratings` arrive as bucket ids like "5-10" or
+   * "under-20"; only their lower/upper bound is meaningful to the API.
+   */
+  const lowestOf = (values: readonly string[]) => {
+    const numbers = values.flatMap(value => (value.match(/\d+/g) ?? []).map(Number));
+    return numbers.length ? Math.min(...numbers) : undefined;
+  };
+  const highestOf = (values: readonly string[]) => {
+    const numbers = values.flatMap(value => (value.match(/\d+/g) ?? []).map(Number));
+    return numbers.length ? Math.max(...numbers) : undefined;
+  };
+
+  const directory = useApi(
+    () =>
+      api.fetchAstrologers({
+        expertise: applied.expertise.length ? [...applied.expertise] : undefined,
+        languages: applied.language.length ? [...applied.language] : undefined,
+        /** The category row above the list — "love", "marriage", and so on. */
+        topics: category === 'all' ? undefined : [CATEGORY_TOPICS[category]],
+        badges: applied.top.length ? [...applied.top] : undefined,
+        gender: applied.gender[0],
+        online: applied.status.includes('online') ? true : undefined,
+        minExperience: lowestOf(applied.experience),
+        maxRate: highestOf(applied.price),
+        minRating: lowestOf(applied.ratings),
+        limit: 50,
+      }),
+    [JSON.stringify(applied), category],
+  );
+
+  /** One card, in the words this screen prints. */
+  const cards = (directory.data?.items ?? []).map(row => {
+    const service = mode === 'call' ? row.rates.call : row.rates.chat;
+
+    return {
+      id: row.id,
+      name: row.name,
+      photo: portraitOf(row.photo),
+      online: row.online,
+      languages: api.joinLabels(row.languages) || '—',
+      experience: row.experienceYears ? `${row.experienceYears} Yrs` : '—',
+      orders: row.consultations.toLocaleString('en-IN'),
+      rating: row.rating ? row.rating.toFixed(1) : '—',
+      /** A busy astrologer shows a countdown where the button would be. */
+      wait: row.busy && row.waitSeconds ? `Wait ${Math.ceil(row.waitSeconds / 60)} min` : undefined,
+      was: service ? `₹${service.was}/min` : '',
+      now: row.freeMinutes > 0 ? 'Free' : service ? `₹${service.now}/min` : '—',
+    };
+  });
+
+  /** The sheet's two sorts are the only part still applied on the client. */
+  const results = sortConsultAstrologers(cards, applied);
 
   return (
     <View style={styles.screen}>
@@ -174,7 +264,10 @@ export function AvailableAstrologersScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Filter astrologers"
-            onPress={onOpenFilters}
+            onPress={() => {
+              onOpenFilters?.();
+              setFiltersOpen(true);
+            }}
             style={({ pressed }) => [
               styles.headerIcon,
               pressed && styles.dimmed,
@@ -300,21 +393,45 @@ export function AvailableAstrologersScreen({
         </View>
 
         <View style={styles.list}>
-          {results.map(astrologer => (
-            <AstrologerCard
-              key={astrologer.id}
-              astrologer={astrologer}
-              mode={mode}
-              scale={scale}
-              styles={styles}
-              onPress={() => onSelectAstrologer?.(astrologer)}
-              onConsult={() => onConsult?.(astrologer, mode)}
-            />
-          ))}
+          {results.length === 0 ? (
+            <Label style={styles.empty}>
+              No astrologers match these filters.
+            </Label>
+          ) : (
+            results.map(astrologer => (
+              <AstrologerCard
+                key={astrologer.id}
+                astrologer={astrologer}
+                mode={mode}
+                scale={scale}
+                styles={styles}
+                onPress={() => onSelectAstrologer?.(astrologer)}
+                onConsult={() => onConsult?.(astrologer, mode)}
+              />
+            ))
+          )}
         </View>
       </ScrollView>
 
       <BottomTabBar active={activeTab} onSelect={onSelectTab} />
+
+      <ConsultFilterSheet
+        visible={filtersOpen}
+        value={applied}
+        onClose={() => setFiltersOpen(false)}
+        onApply={selection => {
+          setApplied(selection);
+          setFiltersOpen(false);
+          // Let the sheet finish sliding out before the receipt takes its
+          // place — iOS refuses to present a modal over one still dismissing.
+          receipt.current = setTimeout(() => setAppliedShown(true), 220);
+        }}
+      />
+
+      <ConsultFilterAppliedDialog
+        visible={appliedShown}
+        onDismiss={() => setAppliedShown(false)}
+      />
     </View>
   );
 }
@@ -624,6 +741,14 @@ function createStyles(scale: number) {
       // 296.319 down the frame, with the pagination ending at 291.632.
       paddingTop: px(4.687),
       gap: px(16),
+    },
+    /** Stands in for the cards when the filters sift everyone out. */
+    empty: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(13),
+      lineHeight: px(20),
+      color: consultPalette.ink,
+      paddingTop: px(40),
     },
     card: {
       width: px(369),

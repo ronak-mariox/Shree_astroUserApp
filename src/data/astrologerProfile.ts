@@ -26,82 +26,59 @@ export const detailPalette = {
   barTrack: '#F3F3F3',
 } as const;
 
-export const astrologerProfile = {
-  name: 'Astro Ragini',
-  online: true,
-  waitTime: 'Wait 5Min',
-  walletBalance: '₹ 1000',
-  languages: 'English, Hindi',
-  photo: require('../assets/images/astro-ragini.png') as ImageSourcePropType,
-  /** Each speciality pill carries its own pastel fill (nodes 180:164546+). */
-  tags: [
-    { label: 'Vedic', fill: '#EEFFDA' },
-    { label: 'Numerology', fill: '#FFF3EA' },
-    { label: 'Palmistry', fill: '#EDF7FB' },
-    { label: 'Horary', fill: '#EAF2FF' },
-    { label: '+2', fill: '#F0FFDE' },
-  ],
-  stats: [
-    { value: '(4.5/5)', label: 'Ratings', stars: true },
-    { value: '8 Years', label: 'Experience' },
-    { value: '2K Mins', label: 'Call' },
-    { value: '3K Mins', label: 'Chat' },
-  ],
+/** Figma pins five pastel fills to the speciality pills (nodes 180:164546+). */
+export const TAG_FILLS = ['#EEFFDA', '#FFF3EA', '#EDF7FB', '#EAF2FF', '#F0FFDE'] as const;
+
+/**
+ * What the astrologer detail screen prints.
+ *
+ * Built from the API in the screen — see services/api.ts for the raw shape.
+ */
+export type AstrologerProfile = {
+  name: string;
+  online: boolean;
+  /** "Wait 5 min" while they are busy; empty when they are free. */
+  waitTime: string;
+  languages: string;
+  photo: ImageSourcePropType;
+  /** Speciality pills, each with its own pastel fill. */
+  tags: ReadonlyArray<{ label: string; fill: string }>;
+  stats: ReadonlyArray<{ value: string; label: string; stars?: boolean }>;
   rates: {
-    chat: { was: '₹31/min', now: '₹19/min' },
-    call: { was: '₹31/min', now: '₹19/min' },
-  },
-  media: [
-    require('../assets/images/astro-media.jpg'),
-    require('../assets/images/astro-media.jpg'),
-    require('../assets/images/astro-media.jpg'),
-    require('../assets/images/astro-media.jpg'),
-  ] as ImageSourcePropType[],
-  specializations: [
-    'Break-up & Divorce',
-    'Career & Job',
-    'Cheating & Affairs',
-    'Numerology',
-    'Love & Relationship',
-    'Kids & Education',
-    'Vedic Astrology',
-    'Finance',
-    'Business',
-    'Palm Reading',
-    'Marital Life',
-  ],
-  about:
-    'Hello! I am an expert in Vedic and Nadi Astrology, and Vedic Numerology. My readings are spirit-guided and I work according to the ethics of Astrology to bring stability to the lives of people... ',
-  score: { value: '4.7', outOf: '/ 5' },
-  /** Histogram rows, top to bottom, with Figma's per-row bar colour. */
-  histogram: [
-    { rating: '5', count: '2.5k', ratio: 1, color: '#37B99E' },
-    { rating: '4', count: '1.5k', ratio: 0.6, color: '#DB80FE' },
-    { rating: '3', count: '500', ratio: 0.2, color: '#33C2EB' },
-    { rating: '2', count: '200', ratio: 0.08, color: '#EFC048' },
-    { rating: '0', count: '0', ratio: 0.05, color: '#FE7615' },
-  ],
-  reviews: [
-    {
-      id: 'r-1',
-      author: 'Anonymous',
-      date: '25 June 2024',
-      body: 'Amazing astrologer mostly all doubts are clear.',
-      reply: { author: 'Nidhi Kumari', body: 'Thank You' },
-    },
-    {
-      id: 'r-2',
-      author: 'Prakash Sharma',
-      date: '25 June 2024',
-      body: 'Amazing astrologer mostly all doubts are clear.',
-      avatar: require('../assets/images/reviewer-avatar.png') as ImageSourcePropType,
-    },
-    {
-      id: 'r-3',
-      author: 'Prakash Sharma',
-      date: '25 June 2024',
-      body: 'Amazing astrologer mostly all doubts are clear.',
-      avatar: require('../assets/images/reviewer-avatar.png') as ImageSourcePropType,
-    },
-  ],
+    chat: { was: string; now: string };
+    call: { was: string; now: string };
+  };
+  media: ReadonlyArray<ImageSourcePropType>;
+  specializations: ReadonlyArray<string>;
+  about: string;
+  score: { value: string; outOf: string };
+  /** Histogram rows, five stars down to one. */
+  histogram: ReadonlyArray<{ rating: string; count: string; ratio: number; color: string }>;
+  reviews: ReadonlyArray<{
+    id: string;
+    author: string;
+    date: string;
+    body: string;
+    avatar?: ImageSourcePropType;
+    reply?: { author: string; body: string };
+  }>;
+};
+
+/**
+ * What a listing knows about the astrologer that was tapped.
+ *
+ * The detail screen fetches the rest by id; this is only what the card already
+ * had, so the header can paint before the fetch lands.
+ */
+export type AstrologerSummary = {
+  id: string;
+  name: string;
+  photo: ImageSourcePropType;
+  online?: boolean;
+  experience?: string;
+  languages?: string;
+  rate?: string;
+  rates?: { was: string; now: string };
+  specialities?: string;
+  wait?: string;
 };

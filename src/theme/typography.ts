@@ -390,6 +390,161 @@ export const typography = {
     lineHeight: 19.5,
   },
   /** Terms & privacy line, option subtitles, divider label. */
+  /** "Select Time" over a wheel picker (Figma node 180:98372). */
+  pickerTitle: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 20,
+    lineHeight: 26,
+  },
+  /** The value the wheel has landed on. */
+  pickerValue: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  /** The faded value either side of it. */
+  pickerNeighbour: {
+    fontFamily: fontFamily.medium,
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  /** "Cancel" / "Submit" under it. */
+  pickerAction: {
+    fontFamily: fontFamily.medium,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  /** "Current Status" over the busy sheet (Figma node 180:162852). */
+  dialogTitle: {
+    fontFamily: fontFamily.medium,
+    fontSize: 18,
+    lineHeight: 27,
+  },
+  /** Its body copy. */
+  dialogBody: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  /** The astrologer's name inside that copy. */
+  dialogBodyStrong: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  /** "Yes, Wait" / "Choose Others". */
+  dialogAction: {
+    fontFamily: fontFamily.regular,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  /** "Connecting With …" and the status line under it (node 180:105063). */
+  connectingHead: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  /** The astrologer's name inside that line. */
+  connectingHeadStrong: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  /** "Astrologer … will connect soon". */
+  connectingNote: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  /** "Wait Time - 02:00". */
+  connectingWait: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 20,
+    lineHeight: 27,
+  },
+  /** "Chat Intake Form" and "Recent Chats" (Figma nodes 180:95028, 180:95029). */
+  screenTitle: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 18,
+    lineHeight: 24,
+  },
+  /** The outlined "My Orders" pill beside it. */
+  ordersLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  /** The initial inside a recent-chat face. */
+  recentInitial: {
+    fontFamily: fontFamily.medium,
+    fontSize: 18,
+    lineHeight: 24,
+  },
+  /** A field label on the chat intake form (node 180:94997). */
+  intakeLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  /** What that field holds (node 180:94998). */
+  intakeValue: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  /** A gender or duration option on it (node 180:94987). */
+  intakeOption: {
+    fontFamily: fontFamily.medium,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  /** The ♂ / ♀ mark beside those options. */
+  genderGlyph: {
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  /** "Connect With Astro Ragini →". */
+  ctaLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  /** A line of chat copy (Figma node 180:118756). */
+  chatLine: {
+    fontFamily: fontFamily.regular,
+    fontSize: 10,
+    lineHeight: 16,
+  },
+  /** The time under it. */
+  chatStamp: {
+    fontFamily: fontFamily.regular,
+    fontSize: 6,
+    lineHeight: 9,
+  },
+  /** The astrologer's name on the chat header (node 180:118745). */
+  chatPeer: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  /** The session timer under it. */
+  chatElapsed: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  /** The balance inside the header's wallet pill (node 180:121933). */
+  chatWallet: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 12,
+    lineHeight: 14,
+  },
+  /** The composer's placeholder and the text typed into it. */
+  chatComposer: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   caption: {
     fontFamily: fontFamily.regular,
     fontSize: 12,

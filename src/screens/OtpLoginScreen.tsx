@@ -18,6 +18,9 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { SocialAuthButtons } from '../components/SocialAuthButtons';
 import { CheckIcon } from '../components/icons/CheckIcon';
 import { SmartphoneLargeIcon } from '../components/icons/SmartphoneLargeIcon';
+import { useOtpLogin } from '../hooks/useOtpLogin';
+import { loginPhoneOf, type AuthSession } from '../services/auth';
+import { validateCode, validatePhone } from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -38,8 +41,10 @@ const SENT_BADGE_SIZE = 19.999;
 
 type OtpLoginScreenProps = {
   onBack?: () => void;
-  /** Called once six digits have been entered and confirmed. */
-  onVerified?: (phoneNumber: string) => void;
+  /** Handed the session once the code checks out and the user is signed in. */
+  onVerified?: (session: AuthSession) => void;
+  /** Offered when the number turns out to have no account behind it. */
+  onRegister?: () => void;
   onGooglePress?: () => void;
   onApplePress?: () => void;
 };
@@ -49,27 +54,51 @@ type OtpLoginScreenProps = {
  *
  * The screen has two designed states: before the code is requested the OTP
  * card is dimmed and inert (Figma node 180:88483), and after "Send OTP" it
- * lights up with a yellow outline and live actions (node 180:88571).
+ * lights up with a yellow outline and live actions (node 180:88571). Which one
+ * is showing is now the server's answer — the card opens when a code has
+ * actually been sent, not when the button was pressed.
+ *
+ * The flow itself is in {@link useOtpLogin}, shared with the email screen.
  */
 export function OtpLoginScreen({
   onBack,
   onVerified,
+  onRegister,
   onGooglePress,
   onApplePress,
 }: OtpLoginScreenProps) {
   const insets = useSafeAreaInsets();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
+  const login = useOtpLogin(onVerified);
 
   const fullNumber = `${DIAL_CODE} ${phoneNumber}`;
+  const phoneError = validatePhone(phoneNumber);
+  const otpError = validateCode(otp, OTP_LENGTH);
+  const otpSent = login.sent !== undefined;
+  const busy = login.sending || login.verifying;
+
+  /** The identifier every call in this flow is made against. */
+  const identifier = { channel: 'phone', phone: loginPhoneOf(phoneNumber) } as const;
 
   const handleSendOtp = () => {
-    setOtpSent(true);
+    if (phoneError === undefined && !busy) {
+      login.send(identifier);
+    }
   };
 
+  /** A resend is the same request again; the old code is dead either way. */
   const handleResend = () => {
-    setOtp('');
+    if (login.resendIn === 0 && !busy) {
+      setOtp('');
+      login.send(identifier);
+    }
+  };
+
+  const handleVerify = () => {
+    if (otpError === undefined && !busy) {
+      login.verify(identifier, otp);
+    }
   };
 
   return (
@@ -124,16 +153,31 @@ export function OtpLoginScreen({
               </View>
               <TextInput
                 value={phoneNumber}
-                onChangeText={text => setPhoneNumber(text.replace(/\D/g, ''))}
+                onChangeText={text => {
+                  setPhoneNumber(text.replace(/\D/g, ''));
+                  /** A different number invalidates the code sent to the old one. */
+                  setOtp('');
+                  login.reset();
+                }}
                 placeholder="98765 43210"
                 placeholderTextColor={colors.text.placeholder}
                 keyboardType="phone-pad"
                 textContentType="telephoneNumber"
                 maxLength={10}
                 accessibilityLabel="Mobile number"
-                style={styles.phoneInput}
+                style={[
+                  styles.phoneInput,
+                  // Only complain once there is something to complain about.
+                  phoneNumber.length > 0 &&
+                    phoneError !== undefined &&
+                    styles.inputInvalid,
+                ]}
               />
             </View>
+
+            {phoneNumber.length > 0 && phoneError !== undefined && (
+              <Text style={styles.fieldError}>{phoneError}</Text>
+            )}
 
             {otpSent && (
               <View style={styles.sentRow}>
@@ -144,9 +188,21 @@ export function OtpLoginScreen({
               </View>
             )}
 
+            {/**
+             * No SMS provider is wired up yet, so the server hands the code
+             * back in development to make the flow testable. It is never
+             * present in a production build — see deliverOtp on the server.
+             */}
+            {login.sent?.devCode !== undefined && (
+              <Text style={styles.devCode}>Dev code: {login.sent.devCode}</Text>
+            )}
+
             <PrimaryButton
-              label={otpSent ? 'OTP Sent ✓' : 'Send OTP'}
+              label={
+                login.sending ? 'Sending…' : otpSent ? 'OTP Sent ✓' : 'Send OTP'
+              }
               labelStyle={typography.buttonSmall}
+              disabled={phoneError !== undefined || busy}
               onPress={handleSendOtp}
               style={styles.cardButton}
             />
@@ -178,21 +234,41 @@ export function OtpLoginScreen({
               Didn't receive?{' '}
               <Text
                 accessibilityRole="link"
-                onPress={otpSent ? handleResend : undefined}
+                onPress={otpSent && login.resendIn === 0 ? handleResend : undefined}
                 style={[
                   styles.resendAction,
-                  !otpSent && styles.resendActionDisabled,
+                  (!otpSent || login.resendIn > 0) && styles.resendActionDisabled,
                 ]}
               >
-                Resend OTP
+                {login.resendIn > 0
+                  ? `Resend in ${login.resendIn}s`
+                  : 'Resend OTP'}
               </Text>
             </Text>
 
+            {login.error !== undefined && (
+              <Text style={styles.formError}>{login.error}</Text>
+            )}
+
+            {/** An unregistered number is a wrong turn, not a wrong code. */}
+            {login.notRegistered && (
+              <Text style={styles.formError}>
+                <Text
+                  accessibilityRole="link"
+                  onPress={onRegister}
+                  style={styles.formErrorAction}
+                >
+                  Create an account
+                </Text>{' '}
+                to continue.
+              </Text>
+            )}
+
             <PrimaryButton
-              label="Verify & Continue"
+              label={login.verifying ? 'Verifying…' : 'Verify & Continue'}
               labelStyle={typography.buttonSmall}
-              disabled={!otpSent}
-              onPress={() => onVerified?.(fullNumber)}
+              disabled={!otpSent || otpError !== undefined || busy}
+              onPress={handleVerify}
             />
           </View>
 
@@ -319,6 +395,14 @@ const styles = StyleSheet.create({
     paddingRight: hairline,
     paddingVertical: 0,
   },
+  inputInvalid: {
+    borderColor: colors.status.debit,
+  },
+  fieldError: {
+    ...typography.caption,
+    color: colors.status.debit,
+    paddingTop: 6,
+  },
   sentRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -339,6 +423,21 @@ const styles = StyleSheet.create({
   },
   cardButton: {
     marginTop: spacing.rowGap,
+  },
+  devCode: {
+    ...typography.captionStrong,
+    color: colors.text.secondary,
+    paddingTop: 6,
+  },
+  formError: {
+    ...typography.caption,
+    color: colors.status.debit,
+    textAlign: 'center',
+    paddingBottom: spacing.md,
+  },
+  formErrorAction: {
+    ...typography.captionStrong,
+    color: colors.border.active,
   },
   otpCard: {
     marginTop: spacing.section,

@@ -32,6 +32,8 @@ export type Astrologer = {
 
 type AstrologerCardProps = {
   astrologer: Astrologer;
+  /** Opens the astrologer's profile — the card itself, outside the two actions. */
+  onPress?: () => void;
   onChatPress?: () => void;
   onCallPress?: () => void;
 };
@@ -42,6 +44,7 @@ type AstrologerCardProps = {
  */
 export function AstrologerCard({
   astrologer,
+  onPress,
   onChatPress,
   onCallPress,
 }: AstrologerCardProps) {
@@ -49,7 +52,12 @@ export function AstrologerCard({
     astrologer;
 
   return (
-    <View style={styles.card}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name}. ${speciality}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+    >
       <View style={styles.avatarWrapper}>
         <Image source={photo} style={styles.avatar} resizeMode="cover" />
         {online && <View style={styles.status} />}
@@ -93,7 +101,7 @@ export function AstrologerCard({
           <Text style={[styles.actionLabel, styles.callLabel]}>Call</Text>
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -117,6 +125,9 @@ const styles = StyleSheet.create({
       android: { elevation: 3 },
       default: {},
     }),
+  },
+  cardPressed: {
+    opacity: 0.9,
   },
   avatarWrapper: {
     width: AVATAR_SIZE,

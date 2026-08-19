@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image,
   Platform,
@@ -27,9 +27,14 @@ import {
   WalletBadgeIcon,
 } from '../components/icons/DetailIcons';
 import {
-  astrologerProfile as profile,
   detailPalette as palette,
+  TAG_FILLS,
+  type AstrologerProfile,
+  type AstrologerSummary,
 } from '../data/astrologerProfile';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { avatarOf, portraitOf } from '../utils/images';
 import {
   colors,
   designFrame,
@@ -49,7 +54,13 @@ const CTA_HEIGHT = 49;
 const REVIEW_AVATAR = 30;
 
 type AstrologerDetailScreenProps = {
+  /** Whoever was tapped in the list; omitted, the pinned profile is shown. */
+  astrologer?: AstrologerSummary;
   onBack?: () => void;
+  /** The kebab in the header — report, share, block. */
+  onMoreOptions?: () => void;
+  /** The "All" dropdown over the reviews. */
+  onFilterReviews?: () => void;
   onFollow?: () => void;
   onChat?: () => void;
   onCall?: () => void;
@@ -63,12 +74,102 @@ type AstrologerDetailScreenProps = {
  * and wide radii come from `detailPalette` rather than the shared theme.
  */
 export function AstrologerDetailScreen({
+  astrologer,
   onBack,
+  onMoreOptions,
+  onFilterReviews,
   onFollow,
   onChat,
   onCall,
 }: AstrologerDetailScreenProps) {
   const insets = useSafeAreaInsets();
+
+  /** The pill in the header shows the seeker's own balance. */
+  const wallet = useApi(() => api.fetchWallet(), []);
+
+  /** The full record, fetched by id. The card's own fields paint until it lands. */
+  const detail = useApi(
+    () => api.fetchAstrologer(astrologer!.id),
+    [astrologer?.id],
+    { skip: !astrologer?.id },
+  );
+
+  const profile = useMemo<AstrologerProfile>(() => {
+    const row = detail.data;
+
+    /** Before the fetch lands, everything comes from the card that was tapped. */
+    const rates = row?.rates?.chat
+      ? { was: `₹${row.rates.chat.was}/min`, now: `₹${row.rates.chat.now}/min` }
+      : astrologer?.rates ?? { was: '', now: astrologer?.rate ?? '—' };
+    const callRates = row?.rates?.call
+      ? { was: `₹${row.rates.call.was}/min`, now: `₹${row.rates.call.now}/min` }
+      : rates;
+
+    const expertise: string[] = row?.expertise ?? [];
+    const tags = (expertise.length
+      ? expertise.map(api.titleCase)
+      : (astrologer?.specialities ?? '')
+          .split(/[,·]/)
+          .map(part => part.trim())
+          .filter(Boolean)
+    ).map((label, index) => ({ label, fill: TAG_FILLS[index % TAG_FILLS.length] }));
+
+    const breakdown = row?.ratingBreakdown;
+    const most = breakdown
+      ? Math.max(breakdown.five, breakdown.four, breakdown.three, breakdown.two, breakdown.one, 1)
+      : 1;
+
+    return {
+      name: row?.name ?? astrologer?.name ?? '',
+      online: row?.online ?? astrologer?.online ?? false,
+      waitTime:
+        row?.busy && row?.waitSeconds
+          ? `Wait ${Math.ceil(row.waitSeconds / 60)} Min`
+          : astrologer?.wait ?? '',
+      languages: row ? api.joinLabels(row.languages) : astrologer?.languages ?? '',
+      photo: portraitOf(row?.photo) ?? astrologer?.photo,
+      tags,
+      stats: [
+        {
+          value: row?.rating ? `(${row.rating}/5)` : '(—)',
+          label: 'Ratings',
+          stars: true,
+        },
+        {
+          value: row?.experienceYears
+            ? `${row.experienceYears} Years`
+            : astrologer?.experience ?? '—',
+          label: 'Experience',
+        },
+        { value: `${Math.round((row?.callMinutes ?? 0) / 1000)}K Mins`, label: 'Call' },
+        { value: `${Math.round((row?.chatMinutes ?? 0) / 1000)}K Mins`, label: 'Chat' },
+      ],
+      rates: { chat: rates, call: callRates },
+      media: (row?.gallery ?? []).map((url: string) => ({ uri: url })),
+      specializations: row?.specializations ?? [],
+      about: row?.about ?? '',
+      score: { value: row?.rating ? String(row.rating) : '—', outOf: '/ 5' },
+      histogram: [
+        { rating: '5', count: String(breakdown?.five ?? 0), ratio: (breakdown?.five ?? 0) / most, color: '#37B99E' },
+        { rating: '4', count: String(breakdown?.four ?? 0), ratio: (breakdown?.four ?? 0) / most, color: '#DB80FE' },
+        { rating: '3', count: String(breakdown?.three ?? 0), ratio: (breakdown?.three ?? 0) / most, color: '#33C2EB' },
+        { rating: '2', count: String(breakdown?.two ?? 0), ratio: (breakdown?.two ?? 0) / most, color: '#EFC048' },
+        { rating: '1', count: String(breakdown?.one ?? 0), ratio: (breakdown?.one ?? 0) / most, color: '#FE7615' },
+      ],
+      reviews: (row?.reviews ?? []).map((review: any) => ({
+        id: review.id,
+        author: review.reviewer || 'Anonymous',
+        date: api.shortDate(review.at),
+        body: review.comment ?? '',
+        avatar: review.avatar ? avatarOf(review.avatar) : undefined,
+        reply: review.reply ? { author: row?.name ?? '', body: review.reply } : undefined,
+      })),
+    };
+  }, [detail.data, astrologer]);
+  // Following and the About card both work off local state — neither needs a
+  // backend to be useful.
+  const [following, setFollowing] = useState(false);
+  const [aboutExpanded, setAboutExpanded] = useState(false);
 
   return (
     <View style={styles.screen}>
@@ -98,12 +199,13 @@ export function AstrologerDetailScreen({
 
           <View style={styles.walletPill}>
             <WalletBadgeIcon />
-            <Text style={styles.walletLabel}>{profile.walletBalance}</Text>
+            <Text style={styles.walletLabel}>{api.rupees(wallet.data?.balance)}</Text>
           </View>
 
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="More options"
+            onPress={onMoreOptions}
             style={({ pressed }) => [styles.kebab, pressed && styles.pressed]}
           >
             <KebabIcon />
@@ -184,11 +286,20 @@ export function AstrologerDetailScreen({
 
             <Pressable
               accessibilityRole="button"
-              onPress={onFollow}
+              accessibilityLabel={
+                following ? `Unfollow ${profile.name}` : `Follow ${profile.name}`
+              }
+              accessibilityState={{ selected: following }}
+              onPress={() => {
+                setFollowing(current => !current);
+                onFollow?.();
+              }}
               style={({ pressed }) => [styles.follow, pressed && styles.pressed]}
             >
               <FollowIcon />
-              <Text style={styles.followLabel}>Follow</Text>
+              <Text style={styles.followLabel}>
+                {following ? 'Following' : 'Follow'}
+              </Text>
             </Pressable>
           </View>
 
@@ -220,9 +331,19 @@ export function AstrologerDetailScreen({
 
           <View style={styles.aboutCard}>
             <Text style={styles.aboutTitle}>About Us</Text>
-            <Text style={styles.aboutBody}>
+            <Text
+              style={styles.aboutBody}
+              numberOfLines={aboutExpanded ? undefined : 3}
+            >
               {profile.about}
-              <Text style={styles.readMore}>Read More</Text>
+            </Text>
+            <Text
+              accessibilityRole="button"
+              accessibilityLabel={aboutExpanded ? 'Read less' : 'Read more'}
+              onPress={() => setAboutExpanded(current => !current)}
+              style={styles.readMore}
+            >
+              {aboutExpanded ? 'Read Less' : 'Read More'}
             </Text>
           </View>
 
@@ -230,6 +351,8 @@ export function AstrologerDetailScreen({
             <Text style={styles.reviewTitle}>Rating and Review</Text>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Filter reviews"
+              onPress={onFilterReviews}
               style={({ pressed }) => [
                 styles.reviewFilter,
                 pressed && styles.pressed,
@@ -617,6 +740,9 @@ const styles = StyleSheet.create({
     color: palette.ink,
   },
   readMore: {
+    fontFamily: fontFamily.regular,
+    fontSize: 10,
+    lineHeight: 17,
     color: palette.link,
   },
 

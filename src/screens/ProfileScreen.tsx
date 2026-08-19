@@ -57,6 +57,12 @@ const MENU_ICONS: Record<MenuKey, (props: MenuIconProps) => React.JSX.Element> =
   };
 
 type ProfileScreenProps = {
+  /**
+   * The signed-in account. The placeholder in data/profile.ts stands in until
+   * one is passed, so the screen still renders in isolation — but a signed-in
+   * app always passes the real thing.
+   */
+  user?: { name?: string; email?: string; avatarUrl?: string };
   onSelectMenu?: (key: MenuKey) => void;
   onLogout?: () => void;
   activeTab?: TabKey;
@@ -68,12 +74,17 @@ type ProfileScreenProps = {
  * else. Figma: node 180:163649.
  */
 export function ProfileScreen({
+  user,
   onSelectMenu,
   onLogout,
   activeTab = 'profile',
   onSelectTab,
 }: ProfileScreenProps) {
   const insets = useSafeAreaInsets();
+
+  /** Only the identity line is the user's; the rest is still placeholder copy. */
+  const name = user?.name || account.name;
+  const email = user?.email || account.email;
 
   return (
     <View style={styles.screen}>
@@ -93,8 +104,8 @@ export function ProfileScreen({
             <Text style={styles.avatarGlyph}>{account.avatarGlyph}</Text>
           </View>
 
-          <Text style={styles.name}>{account.name}</Text>
-          <Text style={styles.email}>{account.email}</Text>
+          <Text style={styles.name}>{name}</Text>
+          <Text style={styles.email}>{email}</Text>
           <Text style={styles.identity}>{account.identity}</Text>
 
           <View style={styles.stats}>

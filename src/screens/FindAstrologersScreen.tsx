@@ -23,11 +23,13 @@ import {
 } from '../components/icons/MetaIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import {
-  directory,
   directoryFilters,
   type DirectoryAstrologer,
   type DirectoryFilter,
 } from '../data/astrologers';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { portraitOf } from '../utils/images';
 import {
   colors,
   designFrame,
@@ -72,16 +74,34 @@ export function FindAstrologersScreen({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<DirectoryFilter>('all');
 
-  const term = query.trim().toLowerCase();
-  const results = directory.filter(astrologer => {
-    const matchesFilter =
-      filter === 'all' || astrologer.tags.includes(filter);
-    const matchesQuery =
-      term.length === 0 ||
-      astrologer.name.toLowerCase().includes(term) ||
-      astrologer.specialities.toLowerCase().includes(term);
-    return matchesFilter && matchesQuery;
-  });
+  /**
+   * The chips map onto what the server can narrow by: "online" is a flag and
+   * the rest are areas of expertise. The search box is applied on the server
+   * too, so the list is the whole directory rather than one page of it.
+   */
+  const directory = useApi(
+    () =>
+      api.fetchAstrologers({
+        search: query.trim() || undefined,
+        online: filter === 'online' ? true : undefined,
+        expertise: filter === 'all' || filter === 'online' ? undefined : [filter],
+        limit: 50,
+      }),
+    [query.trim(), filter],
+  );
+
+  /** One card, in the words the screen prints. */
+  const results = (directory.data?.items ?? []).map(row => ({
+    id: row.id,
+    name: row.name,
+    photo: portraitOf(row.photo),
+    online: row.online,
+    rate: row.rates.chat ? `₹${row.rates.chat.now}/min` : '—',
+    specialities: api.joinLabels(row.expertise) || 'Astrologer',
+    experience: row.experienceYears ? `${row.experienceYears} yrs exp` : '—',
+    languages: api.joinLabels(row.languages) || '—',
+    consults: `${row.consultations.toLocaleString('en-IN')} consults`,
+  }));
 
   return (
     <View style={styles.screen}>
@@ -97,7 +117,11 @@ export function FindAstrologersScreen({
         ]}
       >
         <Text style={styles.title}>Find Astrologers</Text>
-        <Text style={styles.subtitle}>200+ expert astrologers online</Text>
+        <Text style={styles.subtitle}>
+          {directory.loading && !directory.data
+            ? 'Loading…'
+            : `${directory.data?.total ?? 0} expert astrologers`}
+        </Text>
 
         <View style={styles.search}>
           <View style={styles.searchIcon} pointerEvents="none">
@@ -146,6 +170,14 @@ export function FindAstrologersScreen({
         </View>
 
         <View style={styles.list}>
+          {!directory.loading && results.length === 0 && (
+            <Text style={styles.empty}>
+              {query.trim()
+                ? `No astrologers match “${query.trim()}”.`
+                : 'No astrologers are listed yet.'}
+            </Text>
+          )}
+
           {results.map(astrologer => (
             <Pressable
               key={astrologer.id}
@@ -237,6 +269,12 @@ export function FindAstrologersScreen({
 }
 
 const styles = StyleSheet.create({
+  empty: {
+    ...typography.subtitle,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    paddingVertical: spacing.xxl,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.canvas,

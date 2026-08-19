@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, radius } from '../theme';
 import { CameraIcon } from './icons/CameraIcon';
@@ -11,6 +11,8 @@ const BADGE_SIZE = 27.999;
 const BADGE_OFFSET = 64;
 
 type AvatarPickerProps = {
+  /** The chosen photo, if there is one; the glyph shows until then. */
+  uri?: string;
   onPress?: () => void;
 };
 
@@ -19,11 +21,15 @@ type AvatarPickerProps = {
  * (Figma node 180:88712). Renders the placeholder glyph until a photo is
  * chosen; the badge is the tap target for picking one.
  */
-export function AvatarPicker({ onPress }: AvatarPickerProps) {
+export function AvatarPicker({ uri, onPress }: AvatarPickerProps) {
   return (
     <View style={styles.wrapper}>
       <View style={styles.tile}>
-        <UserIcon />
+        {uri ? (
+          <Image source={{ uri }} style={styles.photo} resizeMode="cover" />
+        ) : (
+          <UserIcon />
+        )}
       </View>
 
       <Pressable
@@ -43,9 +49,14 @@ const styles = StyleSheet.create({
     width: TILE_SIZE,
     height: TILE_SIZE,
   },
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
   tile: {
     width: TILE_SIZE,
     height: TILE_SIZE,
+    overflow: 'hidden',
     borderRadius: radius.avatar,
     borderWidth: TILE_BORDER,
     borderColor: colors.border.soft,

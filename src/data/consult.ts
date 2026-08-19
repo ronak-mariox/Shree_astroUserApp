@@ -70,84 +70,29 @@ export const consultTags = [
   { label: '+2', fill: '#F0FFDE', width: 18.507 },
 ];
 
+/**
+ * One row of the Available Astrologers list, in the words the card prints.
+ *
+ * Built from the API in the screen — see services/api.ts for the raw shape.
+ */
 export type ConsultAstrologer = {
   id: string;
   name: string;
-  languages: string;
-  experience: string;
-  orders: string;
-  rating: string;
   photo: ImageSourcePropType;
   online: boolean;
-  /** Countdown shown only while the astrologer is busy. */
+  /** "Hindi, English". */
+  languages: string;
+  /** "18 Yrs". */
+  experience: string;
+  /** "4,820" — how many consultations they have taken. */
+  orders: string;
+  /** "4.7", or a dash before anyone has rated them. */
+  rating: string;
+  /** Shown only while they are busy, e.g. "Wait 2 min". */
   wait?: string;
   /** Struck-through list price. */
   was: string;
-  /** What the user actually pays — "Free" on the promotional rows. */
+  /** What the seeker actually pays — "Free" while free minutes remain. */
   now: string;
-  categories: ReadonlyArray<ConsultCategory>;
 };
 
-/**
- * Figma fills the 90 x 111 card tile with a crop of the stock portrait rather
- * than the whole frame, so the tile ships pre-cropped to that window (the
- * untouched source stays alongside it as consult-astrologer.png).
- */
-const photo = require('../assets/images/consult-astrologer-card.png');
-
-export const consultAstrologers: ReadonlyArray<ConsultAstrologer> = [
-  {
-    id: 'ragini-1',
-    name: 'Astro Ragini',
-    languages: 'English, Hindi',
-    experience: '8 Years',
-    orders: '1000+',
-    rating: '(4.5/5)',
-    photo,
-    online: true,
-    wait: 'Wait 00:01:21',
-    was: '₹21/min',
-    now: 'Free',
-    categories: ['love', 'marriage'],
-  },
-  {
-    id: 'ragini-2',
-    name: 'Astro Ragini',
-    languages: 'English, Hindi',
-    experience: '8 Years',
-    orders: '1000+',
-    rating: '(4.5/5)',
-    photo,
-    online: true,
-    wait: 'Wait 00:01:21',
-    was: '₹21/min',
-    now: 'Free',
-    categories: ['education', 'wealth'],
-  },
-  {
-    id: 'ragini-3',
-    name: 'Astro Ragini',
-    languages: 'English, Hindi',
-    experience: '8 Years',
-    orders: '1000+',
-    rating: '(4.5/5)',
-    photo,
-    online: true,
-    was: '₹21/min',
-    now: '₹15/Min',
-    categories: ['marriage', 'health'],
-  },
-  {
-    id: 'ragini-4',
-    name: 'Astro Ragini',
-    languages: 'English, Hindi',
-    experience: '8 Years',
-    orders: '1000+',
-    rating: '(4.5/5)',
-    photo,
-    online: false,
-    was: '₹21/min',
-    now: '₹15/Min',
-    categories: ['love', 'wealth'],
-  },
-];

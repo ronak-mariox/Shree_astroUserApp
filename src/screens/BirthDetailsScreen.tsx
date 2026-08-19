@@ -10,12 +10,20 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ApiError } from '../services/client';
 import { BackButton } from '../components/BackButton';
 import { BrandGradient } from '../components/BrandGradient';
 import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { StepIndicator } from '../components/StepIndicator';
+import {
+  isFormValid,
+  validateDateOfBirth,
+  validatePlace,
+  validateTimeOfBirth,
+  type FieldError,
+} from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -40,7 +48,11 @@ export type BirthDetails = {
 type BirthDetailsScreenProps = {
   onBack?: () => void;
   onGenerateKundli?: (details: BirthDetails) => void;
-  onSave?: (details: BirthDetails) => void;
+  /**
+   * Saving is what registers the account during sign-up, so this may be async
+   * and may reject — the screen holds the button and prints the refusal.
+   */
+  onSave?: (details: BirthDetails) => void | Promise<void>;
 };
 
 /** One label/value pair inside the warm summary card. */
@@ -68,9 +80,57 @@ export function BirthDetailsScreen({
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [timeOfBirth, setTimeOfBirth] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
+  /** Errors stay hidden until an action is pressed, then follow every keystroke. */
+  const [submitted, setSubmitted] = useState(false);
+  /** True while the account is being created, so it cannot be sent twice. */
+  const [saving, setSaving] = useState(false);
+  /** What the server refused with — a duplicate email, or being unreachable. */
+  const [saveError, setSaveError] = useState<string>();
 
   const details = { dateOfBirth, timeOfBirth, placeOfBirth };
   const placeholder = '—';
+
+  const errors: Record<string, FieldError> = {
+    dateOfBirth: validateDateOfBirth(dateOfBirth),
+    timeOfBirth: validateTimeOfBirth(timeOfBirth),
+    placeOfBirth: validatePlace(placeOfBirth),
+  };
+  const shown = (field: keyof typeof errors) =>
+    submitted ? errors[field] : undefined;
+
+  /** Both actions read the same chart, so both need the same three fields. */
+  const submit = (action?: (values: BirthDetails) => void) => () => {
+    setSubmitted(true);
+    if (!isFormValid(errors)) {
+      return;
+    }
+    action?.(details);
+  };
+
+  /**
+   * Saving sends the whole wizard — this step and the profile behind it — so it
+   * waits on the server and keeps the user here if it is refused.
+   */
+  const handleSave = async () => {
+    setSubmitted(true);
+    setSaveError(undefined);
+    if (!isFormValid(errors) || saving) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave?.(details);
+    } catch (error) {
+      setSaveError(
+        error instanceof ApiError
+          ? error.message
+          : 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -130,6 +190,7 @@ export function BirthDetailsScreen({
               onChangeText={setDateOfBirth}
               placeholder="15/08/1999"
               keyboardType="numbers-and-punctuation"
+              error={shown('dateOfBirth')}
             />
             <FormField
               label="Time of Birth"
@@ -138,6 +199,7 @@ export function BirthDetailsScreen({
               onChangeText={setTimeOfBirth}
               placeholder="06 : 30 AM"
               hint="Enter approximate time if exact time is unknown"
+              error={shown('timeOfBirth')}
             />
             <FormField
               label="Place of Birth"
@@ -145,6 +207,7 @@ export function BirthDetailsScreen({
               value={placeOfBirth}
               onChangeText={setPlaceOfBirth}
               placeholder="Mumbai, Maharashtra"
+              error={shown('placeOfBirth')}
             />
 
             <View style={styles.summary}>
@@ -176,18 +239,23 @@ export function BirthDetailsScreen({
               </View>
             </View>
 
+            {saveError !== undefined && (
+              <Text style={styles.saveError}>{saveError}</Text>
+            )}
+
             <View style={styles.actions}>
               <SecondaryButton
                 label="Generate Kundli"
                 labelStyle={typography.buttonSocial}
                 style={styles.generateButton}
-                onPress={() => onGenerateKundli?.(details)}
+                onPress={submit(onGenerateKundli)}
               />
               <PrimaryButton
-                label="Save & Continue →"
+                label={saving ? 'Saving…' : 'Save & Continue →'}
                 labelStyle={typography.buttonSmall}
+                disabled={saving}
                 style={styles.saveButton}
-                onPress={() => onSave?.(details)}
+                onPress={handleSave}
               />
             </View>
           </View>
@@ -281,6 +349,12 @@ const styles = StyleSheet.create({
     ...typography.summaryValue,
     color: colors.text.inverse,
     paddingTop: 2,
+  },
+  /** The server's refusal, printed across the form rather than under a field. */
+  saveError: {
+    ...typography.caption,
+    color: colors.status.debit,
+    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',
