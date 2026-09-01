@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Modal,
   Platform,
@@ -11,7 +11,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from './BrandGradient';
 import { CloseMarkIcon } from './icons/CloseMarkIcon';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
+
+/**
+ * Shared by every dialog below: a bottom sheet on a phone, and — since it
+ * would otherwise run edge to edge across a tablet — a capped, centred,
+ * fully-rounded card once `isTablet` is true.
+ */
+function useSheetStyles() {
+  const { px, isTablet } = useResponsive();
+  const styles = useMemo(() => createStyles(px, isTablet), [px, isTablet]);
+  return { styles, closeIconSize: px(CLOSE_SIZE) };
+}
 
 const ACTION_HEIGHT = 45.342;
 const CLOSE_SIZE = 19.675;
@@ -36,6 +48,15 @@ type DeclineChatDialogProps = {
   onDismiss: () => void;
 };
 
+type EndChatDialogProps = {
+  visible: boolean;
+  /** Keeps the live session going. */
+  onStay: () => void;
+  /** Closes the session for good. */
+  onEndChat: () => void;
+  onDismiss: () => void;
+};
+
 /**
  * Asked when the cross under the connecting card is pressed: the request is
  * still open, so backing out of it is confirmed first.
@@ -48,6 +69,7 @@ export function DeclineChatDialog({
   onDismiss,
 }: DeclineChatDialogProps) {
   const insets = useSafeAreaInsets();
+  const { styles, closeIconSize } = useSheetStyles();
 
   return (
     <Modal
@@ -120,6 +142,7 @@ export function AstrologerBusyDialog({
   onDismiss,
 }: AstrologerBusyDialogProps) {
   const insets = useSafeAreaInsets();
+  const { styles, closeIconSize } = useSheetStyles();
 
   return (
     <Modal
@@ -144,7 +167,7 @@ export function AstrologerBusyDialog({
             hitSlop={spacing.sm}
             style={({ pressed }) => [styles.close, pressed && styles.pressed]}
           >
-            <CloseMarkIcon size={CLOSE_SIZE} />
+            <CloseMarkIcon size={closeIconSize} />
           </Pressable>
 
           <Text style={styles.title}>Current Status</Text>
@@ -190,7 +213,89 @@ export function AstrologerBusyDialog({
   );
 }
 
-const styles = StyleSheet.create({
+/**
+ * Asked when the cross on the live chat header is pressed: the session is
+ * still open, so ending it is confirmed first.
+ * Figma: node 180:135147, over the scrim at 180:135146.
+ */
+export function EndChatDialog({
+  visible,
+  onStay,
+  onEndChat,
+  onDismiss,
+}: EndChatDialogProps) {
+  const insets = useSafeAreaInsets();
+  const { styles, closeIconSize } = useSheetStyles();
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <View style={styles.stage}>
+        <Pressable
+          accessibilityLabel="Close end chat request"
+          style={styles.scrim}
+          onPress={onDismiss}
+        />
+
+        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            onPress={onDismiss}
+            hitSlop={spacing.sm}
+            style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+          >
+            <CloseMarkIcon size={closeIconSize} />
+          </Pressable>
+
+          <Text style={styles.title}>End Chat ?</Text>
+          <View style={styles.rule} />
+
+          <Text style={styles.body}>
+            You will not be able to continue the same session once it's
+            closed.
+          </Text>
+
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="No, Stay Here"
+              onPress={onStay}
+              style={({ pressed }) => [
+                styles.action,
+                styles.stay,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.stayLabel}>No, Stay Here</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Yes, End Chat"
+              onPress={onEndChat}
+              style={({ pressed }) => [
+                styles.action,
+                pressed && styles.pressed,
+              ]}
+            >
+              <BrandGradient radius={radius.button} />
+              <Text style={styles.chooseLabel}>Yes, End Chat</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function createStyles(px: (value: number) => number, isTablet: boolean) {
+  return StyleSheet.create({
   stage: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -204,16 +309,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.scrim,
   },
   sheet: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: isTablet ? 480 : undefined,
+    marginBottom: isTablet ? spacing.xxl : 0,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
+    borderBottomLeftRadius: isTablet ? radius.sheet : 0,
+    borderBottomRightRadius: isTablet ? radius.sheet : 0,
     backgroundColor: colors.surface,
     paddingTop: spacing.xl,
     paddingHorizontal: spacing.xl,
   },
   close: {
     position: 'absolute',
-    right: 18,
-    top: 14,
+    right: px(18),
+    top: px(14),
   },
   title: {
     ...typography.dialogTitle,
@@ -227,7 +338,7 @@ const styles = StyleSheet.create({
   // Figma underscores the title with a short centred rule (node 180:162854).
   rule: {
     alignSelf: 'center',
-    width: 145,
+    width: px(145),
     height: 1,
     marginTop: spacing.xs,
     backgroundColor: colors.text.onYellow,
@@ -248,7 +359,7 @@ const styles = StyleSheet.create({
   },
   action: {
     flex: 1,
-    height: ACTION_HEIGHT,
+    height: px(ACTION_HEIGHT),
     borderRadius: radius.action,
     alignItems: 'center',
     justifyContent: 'center',
@@ -289,4 +400,5 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.8,
   },
-});
+  });
+}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,6 +18,14 @@ import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { StepIndicator } from '../components/StepIndicator';
+import { WheelPickerDialog } from '../components/WheelPickerDialog';
+import { CalendarIcon, ClockIcon, LocationPinIcon } from '../components/icons/FormIcons';
+import {
+  DAY_COLUMN,
+  MONTHS,
+  MONTH_COLUMN,
+  YEAR_COLUMN,
+} from '../data/chatIntake';
 import {
   isFormValid,
   validateDateOfBirth,
@@ -32,6 +41,22 @@ import {
   spacing,
   typography,
 } from '../theme';
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+/** "15/08/1999", the format {@link validateDateOfBirth} expects. */
+const formatDob = (day: string, month: string, year: string) =>
+  `${day}/${pad2(MONTHS.indexOf(month as (typeof MONTHS)[number]) + 1)}/${year}`;
+
+/** The reverse of {@link formatDob} — falls back to a sensible default. */
+const parseDob = (value: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) {
+    return { day: '01', month: 'Jan', year: '2000' };
+  }
+  const [, day, month, year] = match;
+  return { day, month: MONTHS[Number(month) - 1] ?? 'Jan', year };
+};
 
 /** Top padding Figma drew, measured from the top of the status bar. */
 const DESIGN_PADDING_TOP = 56;
@@ -86,6 +111,8 @@ export function BirthDetailsScreen({
   const [saving, setSaving] = useState(false);
   /** What the server refused with — a duplicate email, or being unreachable. */
   const [saveError, setSaveError] = useState<string>();
+  /** Whether the Date of Birth wheel is open. */
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const details = { dateOfBirth, timeOfBirth, placeOfBirth };
   const placeholder = '—';
@@ -183,18 +210,25 @@ export function BirthDetailsScreen({
           </View>
 
           <View style={styles.form}>
-            <FormField
-              label="Date of Birth"
-              labelIcon="📅"
-              value={dateOfBirth}
-              onChangeText={setDateOfBirth}
-              placeholder="15/08/1999"
-              keyboardType="numbers-and-punctuation"
-              error={shown('dateOfBirth')}
-            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Date of Birth"
+              onPress={() => setDatePickerOpen(true)}
+            >
+              <View pointerEvents="none">
+                <FormField
+                  label="Date of Birth"
+                  labelIcon={<CalendarIcon size={15} />}
+                  value={dateOfBirth}
+                  placeholder="15/08/1999"
+                  editable={false}
+                  error={shown('dateOfBirth')}
+                />
+              </View>
+            </Pressable>
             <FormField
               label="Time of Birth"
-              labelIcon="⏰"
+              labelIcon={<ClockIcon size={16} />}
               value={timeOfBirth}
               onChangeText={setTimeOfBirth}
               placeholder="06 : 30 AM"
@@ -203,7 +237,7 @@ export function BirthDetailsScreen({
             />
             <FormField
               label="Place of Birth"
-              labelIcon="📍"
+              labelIcon={<LocationPinIcon size={14} />}
               value={placeOfBirth}
               onChangeText={setPlaceOfBirth}
               placeholder="Mumbai, Maharashtra"
@@ -261,6 +295,22 @@ export function BirthDetailsScreen({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <WheelPickerDialog
+        visible={datePickerOpen}
+        title="Select Date"
+        columns={[
+          { key: 'day', values: DAY_COLUMN },
+          { key: 'month', values: MONTH_COLUMN },
+          { key: 'year', values: YEAR_COLUMN },
+        ]}
+        value={parseDob(dateOfBirth)}
+        onCancel={() => setDatePickerOpen(false)}
+        onSubmit={chosen => {
+          setDateOfBirth(formatDob(chosen.day, chosen.month, chosen.year));
+          setDatePickerOpen(false);
+        }}
+      />
     </View>
   );
 }

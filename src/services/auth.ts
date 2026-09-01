@@ -11,9 +11,26 @@
  */
 
 import { client } from './client';
+import { DUMMY_USER } from './dummyData';
+import { USE_DUMMY_DATA } from './dummyMode';
 import { clearSession, saveSession } from './session';
 import type { Gender } from '../components/GenderSelector';
 import { digitsOf } from '../utils/validation';
+
+/** The fixed code the OTP screen accepts while there is no SMS provider. */
+const DUMMY_OTP_CODE = '123456';
+
+/** The account every dummy sign-in lands on — kept in step with `dummyData.ts`. */
+function dummyUser(phone?: string, email?: string): AuthUser {
+  return {
+    id: DUMMY_USER.id,
+    name: DUMMY_USER.name,
+    email: email ?? DUMMY_USER.email,
+    phone: phone ?? DUMMY_USER.phone,
+    gender: DUMMY_USER.gender,
+    avatarUrl: DUMMY_USER.avatarUrl,
+  };
+}
 
 /** A picked image, in the shape React Native's FormData expects. */
 export type PhotoAsset = {
@@ -149,6 +166,20 @@ export function buildRegistrationForm(draft: RegistrationDraft): FormData {
  * is authenticated — and stays that way across a restart.
  */
 export async function register(draft: RegistrationDraft): Promise<AuthSession> {
+  if (USE_DUMMY_DATA) {
+    const session: AuthSession = {
+      accessToken: 'dummy-access-token',
+      refreshToken: 'dummy-refresh-token',
+      user: {
+        ...dummyUser(localPhoneOf(draft.profile.phoneNumber), draft.profile.email),
+        name: draft.profile.fullName.trim() || DUMMY_USER.name,
+        gender: draft.profile.gender ?? DUMMY_USER.gender,
+      },
+    };
+    await saveSession(session);
+    return session;
+  }
+
   const { data } = await client.post<AuthSession>(
     '/auth/register',
     buildRegistrationForm(draft),
@@ -179,6 +210,20 @@ export async function register(draft: RegistrationDraft): Promise<AuthSession> {
 export async function requestLoginOtp(
   identifier: LoginIdentifier,
 ): Promise<OtpRequest> {
+  if (USE_DUMMY_DATA) {
+    const destination =
+      identifier.channel === 'phone'
+        ? `••••••${identifier.phone.slice(-4)}`
+        : identifier.email.replace(/^(.{2}).*(@.*)$/, '$1•••$2');
+    return {
+      channel: identifier.channel,
+      destination,
+      expiresInSeconds: 300,
+      resendInSeconds: 30,
+      devCode: DUMMY_OTP_CODE,
+    };
+  }
+
   const { data } = await client.post<OtpRequest>(
     '/auth/login/otp/request',
     identifier,
@@ -198,6 +243,19 @@ export async function verifyLoginOtp(
   identifier: LoginIdentifier,
   code: string,
 ): Promise<AuthSession> {
+  if (USE_DUMMY_DATA) {
+    const session: AuthSession = {
+      accessToken: 'dummy-access-token',
+      refreshToken: 'dummy-refresh-token',
+      user: dummyUser(
+        identifier.channel === 'phone' ? identifier.phone : undefined,
+        identifier.channel === 'email' ? identifier.email : undefined,
+      ),
+    };
+    await saveSession(session);
+    return session;
+  }
+
   const { data } = await client.post<AuthSession>('/auth/login/otp/verify', {
     ...identifier,
     code: digitsOf(code),
@@ -219,10 +277,12 @@ export const loginPhoneOf = localPhoneOf;
  * A user who taps "Log out" on a plane is signed out.
  */
 export async function signOut(): Promise<void> {
-  try {
-    await client.post('/auth/logout');
-  } catch {
-    /** Nothing here is worth keeping the user signed in for. */
+  if (!USE_DUMMY_DATA) {
+    try {
+      await client.post('/auth/logout');
+    } catch {
+      /** Nothing here is worth keeping the user signed in for. */
+    }
   }
   await clearSession();
 }

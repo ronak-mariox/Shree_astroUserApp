@@ -28,8 +28,6 @@ const ASTROLOGER = {
   languages: ['hindi', 'english'],
   topics: ['career-job', 'marriage'],
   experienceYears: 18,
-  rating: 4.7,
-  ratingCount: 120,
   consultations: 4820,
   badges: [],
   rates: { chat: { was: 20, now: 20 }, call: { was: 30, now: 30 } },
@@ -85,7 +83,6 @@ const KAVITA = {
   languages: ['english', 'gujarati'],
   topics: ['health', 'love-relationship'],
   experienceYears: 12,
-  rating: 4.5,
   consultations: 3210,
   rates: { chat: { was: 15, now: 15 }, call: { was: 25, now: 25 } },
   freeMinutes: 0,
@@ -120,22 +117,10 @@ export const fetchAstrologer = async (id: string) => ({
   about: 'Vedic astrologer with 18 years of practice.',
   specializations: ['Career & Job', 'Marriage'],
   gallery: [],
-  ratingBreakdown: { five: 90, four: 20, three: 6, two: 3, one: 1 },
   chatMinutes: 3000,
   callMinutes: 2000,
-  reviews: [
-    {
-      id: 'r-1',
-      reviewer: 'Anonymous',
-      rating: 5,
-      comment: 'Amazing astrologer, all doubts cleared.',
-      reply: 'Thank you',
-      at: '2026-06-25T00:00:00.000Z',
-    },
-  ],
 });
 
-export const fetchAstrologerReviews = async () => [];
 export const toggleFavourite = async () => true;
 export const fetchFavourites = async () => [];
 
@@ -174,7 +159,6 @@ export const cancelChat = async () => ({});
 export const endChat = async () => ({
   chatId: 'chat-1', status: 'ended', durationSeconds: 600, amountCharged: 200,
 });
-export const rateChat = async () => ({});
 export const fetchConsultations = async () => [];
 export const fetchMessages = async () => [];
 export const sendMessage = async () => ({});

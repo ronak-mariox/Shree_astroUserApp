@@ -20,10 +20,6 @@ export const detailPalette = {
   cardShadow: 'rgba(210, 210, 210, 0.87)',
   aboutFill: '#FFFDE9',
   aboutBorder: '#CACACA',
-  filterBorder: '#FFC700',
-  replyFill: '#F2F2F2',
-  replyAccent: '#9A30CC',
-  barTrack: '#F3F3F3',
 } as const;
 
 /** Figma pins five pastel fills to the speciality pills (nodes 180:164546+). */
@@ -43,7 +39,7 @@ export type AstrologerProfile = {
   photo: ImageSourcePropType;
   /** Speciality pills, each with its own pastel fill. */
   tags: ReadonlyArray<{ label: string; fill: string }>;
-  stats: ReadonlyArray<{ value: string; label: string; stars?: boolean }>;
+  stats: ReadonlyArray<{ value: string; label: string }>;
   rates: {
     chat: { was: string; now: string };
     call: { was: string; now: string };
@@ -51,17 +47,6 @@ export type AstrologerProfile = {
   media: ReadonlyArray<ImageSourcePropType>;
   specializations: ReadonlyArray<string>;
   about: string;
-  score: { value: string; outOf: string };
-  /** Histogram rows, five stars down to one. */
-  histogram: ReadonlyArray<{ rating: string; count: string; ratio: number; color: string }>;
-  reviews: ReadonlyArray<{
-    id: string;
-    author: string;
-    date: string;
-    body: string;
-    avatar?: ImageSourcePropType;
-    reply?: { author: string; body: string };
-  }>;
 };
 
 /**

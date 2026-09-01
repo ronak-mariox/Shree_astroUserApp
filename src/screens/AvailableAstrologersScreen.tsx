@@ -13,7 +13,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
-import { BrandGradient } from '../components/BrandGradient';
 import { ConsultFilterAppliedDialog } from '../components/ConsultFilterAppliedDialog';
 import { useApi } from '../hooks/useApi';
 import * as api from '../services/api';
@@ -35,7 +34,6 @@ import {
   ChipWealthIcon,
   LanguageIcon,
   SlidersIcon,
-  StarIcon,
   ToggleCallIcon,
   ToggleChatIcon,
   type ConsultIconProps,
@@ -91,7 +89,6 @@ const ICON = {
   search: 15.999,
   toggleChat: 21.5002,
   toggleCall: 17.8125,
-  star: 9.99729,
   language: 12.2314,
   dots: 45.7364,
   chatBody: 9.69247,
@@ -180,8 +177,8 @@ export function AvailableAstrologersScreen({
    * The sheet's selections are ids the API already understands, so the whole
    * filter runs on the server rather than over one page of rows.
    *
-   * `experience`, `price` and `ratings` arrive as bucket ids like "5-10" or
-   * "under-20"; only their lower/upper bound is meaningful to the API.
+   * `experience` and `price` arrive as bucket ids like "5-10" or "under-20";
+   * only their lower/upper bound is meaningful to the API.
    */
   const lowestOf = (values: readonly string[]) => {
     const numbers = values.flatMap(value => (value.match(/\d+/g) ?? []).map(Number));
@@ -204,7 +201,6 @@ export function AvailableAstrologersScreen({
         online: applied.status.includes('online') ? true : undefined,
         minExperience: lowestOf(applied.experience),
         maxRate: highestOf(applied.price),
-        minRating: lowestOf(applied.ratings),
         limit: 50,
       }),
     [JSON.stringify(applied), category],
@@ -222,7 +218,6 @@ export function AvailableAstrologersScreen({
       languages: api.joinLabels(row.languages) || '—',
       experience: row.experienceYears ? `${row.experienceYears} Yrs` : '—',
       orders: row.consultations.toLocaleString('en-IN'),
-      rating: row.rating ? row.rating.toFixed(1) : '—',
       /** A busy astrologer shows a countdown where the button would be. */
       wait: row.busy && row.waitSeconds ? `Wait ${Math.ceil(row.waitSeconds / 60)} min` : undefined,
       was: service ? `₹${service.was}/min` : '',
@@ -322,12 +317,6 @@ export function AvailableAstrologersScreen({
                   pressed && styles.dimmed,
                 ]}
               >
-                {selected && (
-                  <BrandGradient
-                    radius={radius.button * scale}
-                    angle="horizontal"
-                  />
-                )}
                 {option === 'chat' ? (
                   <ToggleChatIcon
                     size={ICON.toggleChat * scale}
@@ -523,16 +512,6 @@ function AstrologerCard({
               <Label style={styles.statValue}>{astrologer.orders}</Label>
               <Label style={styles.statLabel}>Orders</Label>
             </View>
-
-            <View style={styles.statDivider} />
-
-            <View style={styles.statRating}>
-              <View style={styles.ratingRow}>
-                {online && <StarIcon size={ICON.star * scale} />}
-                <Label style={styles.statValue}>{astrologer.rating}</Label>
-              </View>
-              <Label style={styles.statLabel}>Star Ratings</Label>
-            </View>
           </View>
         </View>
       </View>
@@ -664,12 +643,17 @@ function createStyles(scale: number) {
     modeOn: {
       borderRadius: px(radius.button),
       gap: px(3),
+      backgroundColor: consultPalette.callAccent,
+      borderWidth: 1,
+      borderColor: consultPalette.callAccent,
+      opacity: 1,
     },
     modeOff: {
       borderRadius: px(radius.icon),
+      gap: px(8),
+      backgroundColor: 'transparent',
       borderWidth: 1,
       borderColor: consultPalette.callBorder,
-      gap: px(8),
       opacity: 0.88,
     },
     modeLabel: {
@@ -866,9 +850,9 @@ function createStyles(scale: number) {
     },
 
     /**
-     * Figma centres the three figures on 148 / 236 / 327 and rules the gaps
-     * at 197 and 275. The cells run a little wider than the labels they hold
-     * so Poppins Regular can stand in for the Light weight Figma used.
+     * Figma centres the figures on 148 / 236 and rules the gap at 197. The
+     * cells run a little wider than the labels they hold so Poppins Regular
+     * can stand in for the Light weight Figma used.
      */
     stats: {
       flexDirection: 'row',
@@ -884,22 +868,12 @@ function createStyles(scale: number) {
       width: px(40),
       alignItems: 'center',
     },
-    statRating: {
-      width: px(62),
-      alignItems: 'center',
-    },
     statDivider: {
       width: 1,
       height: px(30),
       borderRadius: 0.5,
       backgroundColor: colors.border.rule,
       marginHorizontal: px(19),
-    },
-    ratingRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: px(1.621),
-      height: px(15),
     },
     statValue: {
       fontFamily: fontFamily.medium,

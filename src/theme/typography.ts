@@ -512,14 +512,14 @@ export const typography = {
   /** A line of chat copy (Figma node 180:118756). */
   chatLine: {
     fontFamily: fontFamily.regular,
-    fontSize: 10,
-    lineHeight: 16,
+    fontSize: 15,
+    lineHeight: 21,
   },
   /** The time under it. */
   chatStamp: {
     fontFamily: fontFamily.regular,
-    fontSize: 6,
-    lineHeight: 9,
+    fontSize: 10,
+    lineHeight: 13,
   },
   /** The astrologer's name on the chat header (node 180:118745). */
   chatPeer: {
@@ -542,8 +542,8 @@ export const typography = {
   /** The composer's placeholder and the text typed into it. */
   chatComposer: {
     fontFamily: fontFamily.regular,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
   },
   caption: {
     fontFamily: fontFamily.regular,

@@ -18,7 +18,7 @@ const TABS: ReadonlyArray<{
   key: TabKey;
   label: string;
   Icon: (props: TabIconProps) => React.JSX.Element;
-  /** Selected tint — Home reads green, every other tab reads black. */
+  /** Selected tint — green across every tab. */
   activeColor: string;
 }> = [
   {
@@ -31,7 +31,7 @@ const TABS: ReadonlyArray<{
     key: 'kundli',
     label: 'Kundli',
     Icon: KundliTabIcon,
-    activeColor: colors.border.strong,
+    activeColor: colors.success.accent,
   },
   {
     key: 'consult',
@@ -43,7 +43,7 @@ const TABS: ReadonlyArray<{
     key: 'wallet',
     label: 'Wallet',
     Icon: WalletTabIcon,
-    activeColor: colors.border.strong,
+    activeColor: colors.success.accent,
   },
   {
     key: 'profile',

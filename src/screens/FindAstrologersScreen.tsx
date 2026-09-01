@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image,
   Platform,
@@ -28,6 +28,7 @@ import {
   type DirectoryFilter,
 } from '../data/astrologers';
 import { useApi } from '../hooks/useApi';
+import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import { portraitOf } from '../utils/images';
 import {
@@ -71,6 +72,11 @@ export function FindAstrologersScreen({
   onSelectTab,
 }: FindAstrologersScreenProps) {
   const insets = useSafeAreaInsets();
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<DirectoryFilter>('all');
 
@@ -112,7 +118,7 @@ export function FindAstrologersScreen({
           styles.header,
           {
             paddingTop:
-              insets.top + (DESIGN_PADDING_TOP - designFrame.statusBarHeight),
+              insets.top + px(DESIGN_PADDING_TOP - designFrame.statusBarHeight),
           },
         ]}
       >
@@ -126,7 +132,7 @@ export function FindAstrologersScreen({
         <View style={styles.search}>
           <View style={styles.searchIcon} pointerEvents="none">
             <SearchIcon
-              size={SEARCH_ICON}
+              size={px(SEARCH_ICON)}
               color={colors.text.onYellowGhost}
             />
           </View>
@@ -184,7 +190,11 @@ export function FindAstrologersScreen({
               accessibilityRole="button"
               accessibilityLabel={`${astrologer.name}. ${astrologer.specialities}`}
               onPress={() => onSelectAstrologer?.(astrologer)}
-              style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.card,
+                isTablet && styles.cardGrid,
+                pressed && styles.pressed,
+              ]}
             >
               <View style={styles.cardTop}>
                 <View style={styles.avatarWrapper}>
@@ -208,19 +218,19 @@ export function FindAstrologersScreen({
 
                   <View style={styles.metaRow}>
                     <View style={styles.metaChip}>
-                      <ClockIcon size={META_ICON} />
+                      <ClockIcon size={px(META_ICON)} />
                       <Text style={styles.metaLabel}>
                         {astrologer.experience}
                       </Text>
                     </View>
                     <View style={styles.metaChip}>
-                      <GlobeIcon size={META_ICON} />
+                      <GlobeIcon size={px(META_ICON)} />
                       <Text style={styles.metaLabel}>
                         {astrologer.languages}
                       </Text>
                     </View>
                     <View style={styles.metaChip}>
-                      <FileLinesIcon size={META_ICON} />
+                      <FileLinesIcon size={px(META_ICON)} />
                       <Text style={styles.metaLabel}>
                         {astrologer.consults}
                       </Text>
@@ -240,7 +250,7 @@ export function FindAstrologersScreen({
                   ]}
                 >
                   <BrandGradient radius={radius.button} />
-                  <MessageIcon size={ACTION_ICON} />
+                  <MessageIcon size={px(ACTION_ICON)} />
                   <Text style={styles.actionLabel}>Chat</Text>
                 </Pressable>
 
@@ -254,7 +264,7 @@ export function FindAstrologersScreen({
                   ]}
                 >
                   <BrandGradient radius={radius.button} />
-                  <PhoneLargeIcon size={ACTION_ICON} />
+                  <PhoneLargeIcon size={px(ACTION_ICON)} />
                   <Text style={styles.actionLabel}>Call</Text>
                 </Pressable>
               </View>
@@ -268,210 +278,237 @@ export function FindAstrologersScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  empty: {
-    ...typography.subtitle,
-    color: colors.text.secondary,
-    textAlign: 'center',
-    paddingVertical: spacing.xxl,
-  },
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvas,
-  },
-  header: {
-    backgroundColor: colors.brandYellow,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
-  },
-  title: {
-    ...typography.pageTitle,
-    color: colors.text.onYellow,
-  },
-  subtitle: {
-    ...typography.footnote,
-    color: colors.text.onYellowMuted,
-    paddingTop: spacing.xs,
-  },
-  search: {
-    justifyContent: 'center',
-    marginTop: spacing.section,
-  },
-  searchIcon: {
-    position: 'absolute',
-    left: 13.99,
-    zIndex: 1,
-  },
-  searchInput: {
-    ...typography.chatInput,
-    height: SEARCH_HEIGHT,
-    borderRadius: radius.field,
-    borderWidth: hairline,
-    borderColor: colors.border.faint,
-    backgroundColor: colors.glass.dimSoft,
-    color: colors.text.onYellow,
-    paddingLeft: 42.755,
-    paddingRight: 14.755,
-    paddingVertical: 0,
-  },
+/** Two cards per row once the list reflows into a grid on a tablet. */
+const GRID_COLUMNS = 2;
 
-  filters: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.rowGap,
-    paddingBottom: spacing.xs,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    height: CHIP_HEIGHT,
-    borderRadius: radius.badge,
-    borderWidth: hairline,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 14.755,
-    paddingVertical: hairline,
-  },
-  chipSelected: {
-    borderColor: colors.border.strong,
-  },
-  chipIdle: {
-    borderColor: colors.border.subtle,
-  },
-  chipDot: {
-    width: CHIP_DOT,
-    height: CHIP_DOT,
-    borderRadius: CHIP_DOT / 2,
-    backgroundColor: colors.success.accent,
-  },
-  chipOn: {
-    ...typography.footnoteStrong,
-    color: colors.border.strong,
-    textAlign: 'center',
-  },
-  chipOff: {
-    ...typography.footnote,
-    color: colors.text.secondary,
-    textAlign: 'center',
-  },
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  const gridGap = spacing.xl;
+  // `list` carries its own paddingHorizontal (spacing.lg each side) inside
+  // contentWidth, so the row's usable width is narrower than contentWidth.
+  const rowWidth = contentWidth - spacing.lg * 2;
+  const cardWidth = (rowWidth - gridGap * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
 
-  list: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    gap: spacing.xl,
-  },
-  card: {
-    borderRadius: radius.card,
-    borderWidth: hairline,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface,
-    padding: 16.755,
-    // drop-shadow(0 2px 6px rgba(0, 0, 0, 0.05))
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
-      },
-      android: { elevation: 2 },
-      default: {},
-    }),
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  cardTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.rowGap,
-  },
-  avatarWrapper: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-  },
-  avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: radius.summary,
-    borderWidth: stroke,
-    borderColor: colors.status.infoTint,
-  },
-  statusDot: {
-    position: 'absolute',
-    left: 46,
-    top: 50.44,
-    width: STATUS_DOT,
-    height: STATUS_DOT,
-    borderRadius: STATUS_DOT / 2,
-    borderWidth: stroke,
-    borderColor: colors.surface,
-    backgroundColor: colors.success.accent,
-  },
-  cardCopy: {
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  name: {
-    ...typography.optionTitle,
-    color: colors.text.primary,
-    flexShrink: 1,
-  },
-  rate: {
-    ...typography.footnoteStrong,
-    fontFamily: typography.rowTitle.fontFamily,
-    color: colors.cosmos.accent,
-  },
-  specialities: {
-    ...typography.caption,
-    color: colors.text.secondary,
-    paddingTop: 2,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    paddingTop: spacing.sm,
-  },
-  metaChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderRadius: radius.chip,
-    backgroundColor: colors.surfaceMuted,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  metaLabel: {
-    ...typography.footnoteSmall,
-    color: colors.text.muted,
-  },
+  return StyleSheet.create({
+    empty: {
+      ...typography.subtitle,
+      color: colors.text.secondary,
+      textAlign: 'center',
+      paddingVertical: spacing.xxl,
+    },
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    header: {
+      backgroundColor: colors.brandYellow,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.lg,
+    },
+    title: {
+      ...typography.pageTitle,
+      color: colors.text.onYellow,
+    },
+    subtitle: {
+      ...typography.footnote,
+      color: colors.text.onYellowMuted,
+      paddingTop: spacing.xs,
+    },
+    search: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      justifyContent: 'center',
+      marginTop: spacing.section,
+    },
+    searchIcon: {
+      position: 'absolute',
+      left: px(13.99),
+      zIndex: 1,
+    },
+    searchInput: {
+      ...typography.chatInput,
+      height: px(SEARCH_HEIGHT),
+      borderRadius: radius.field,
+      borderWidth: hairline,
+      borderColor: colors.border.faint,
+      backgroundColor: colors.glass.dimSoft,
+      color: colors.text.onYellow,
+      paddingLeft: px(42.755),
+      paddingRight: px(14.755),
+      paddingVertical: 0,
+    },
 
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingTop: spacing.rowGap,
-  },
-  action: {
-    flex: 1,
-    height: ACTION_HEIGHT,
-    borderRadius: radius.button,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    overflow: 'hidden',
-  },
-  actionLabel: {
-    ...typography.footnoteStrong,
-    color: colors.text.inverse,
-    textAlign: 'center',
-  },
-});
+    filters: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.rowGap,
+      paddingBottom: spacing.xs,
+    },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      height: px(CHIP_HEIGHT),
+      borderRadius: radius.badge,
+      borderWidth: hairline,
+      backgroundColor: colors.surface,
+      paddingHorizontal: px(14.755),
+      paddingVertical: hairline,
+    },
+    chipSelected: {
+      borderColor: colors.border.strong,
+    },
+    chipIdle: {
+      borderColor: colors.border.subtle,
+    },
+    chipDot: {
+      width: px(CHIP_DOT),
+      height: px(CHIP_DOT),
+      borderRadius: px(CHIP_DOT) / 2,
+      backgroundColor: colors.success.accent,
+    },
+    chipOn: {
+      ...typography.footnoteStrong,
+      color: colors.border.strong,
+      textAlign: 'center',
+    },
+    chipOff: {
+      ...typography.footnote,
+      color: colors.text.secondary,
+      textAlign: 'center',
+    },
+
+    list: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      flexDirection: isTablet ? 'row' : 'column',
+      flexWrap: isTablet ? 'wrap' : 'nowrap',
+      gap: spacing.xl,
+    },
+    card: {
+      borderRadius: radius.card,
+      borderWidth: hairline,
+      borderColor: colors.border.subtle,
+      backgroundColor: colors.surface,
+      padding: px(16.755),
+      // drop-shadow(0 2px 6px rgba(0, 0, 0, 0.05))
+      ...Platform.select({
+        ios: {
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 6,
+        },
+        android: { elevation: 2 },
+        default: {},
+      }),
+    },
+    /** Applied alongside `card` once the list reflows into a grid. */
+    cardGrid: {
+      width: cardWidth,
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+    cardTop: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.rowGap,
+    },
+    avatarWrapper: {
+      width: px(AVATAR_SIZE),
+      height: px(AVATAR_SIZE),
+    },
+    avatar: {
+      width: px(AVATAR_SIZE),
+      height: px(AVATAR_SIZE),
+      borderRadius: radius.summary,
+      borderWidth: stroke,
+      borderColor: colors.status.infoTint,
+    },
+    statusDot: {
+      position: 'absolute',
+      left: px(46),
+      top: px(50.44),
+      width: px(STATUS_DOT),
+      height: px(STATUS_DOT),
+      borderRadius: px(STATUS_DOT) / 2,
+      borderWidth: stroke,
+      borderColor: colors.surface,
+      backgroundColor: colors.success.accent,
+    },
+    cardCopy: {
+      flex: 1,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+    name: {
+      ...typography.optionTitle,
+      color: colors.text.primary,
+      flexShrink: 1,
+    },
+    rate: {
+      ...typography.footnoteStrong,
+      fontFamily: typography.rowTitle.fontFamily,
+      color: colors.cosmos.accent,
+    },
+    specialities: {
+      ...typography.caption,
+      color: colors.text.secondary,
+      paddingTop: 2,
+    },
+    metaRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      paddingTop: spacing.sm,
+    },
+    metaChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderRadius: radius.chip,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+    },
+    metaLabel: {
+      ...typography.footnoteSmall,
+      color: colors.text.muted,
+    },
+
+    actions: {
+      flexDirection: 'row',
+      gap: 10,
+      paddingTop: spacing.rowGap,
+    },
+    action: {
+      flex: 1,
+      height: px(ACTION_HEIGHT),
+      borderRadius: radius.button,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 3,
+      overflow: 'hidden',
+    },
+    actionLabel: {
+      ...typography.footnoteStrong,
+      color: colors.text.inverse,
+      textAlign: 'center',
+    },
+  });
+}

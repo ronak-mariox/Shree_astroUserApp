@@ -9,15 +9,21 @@ import {
 } from 'react-native';
 
 import { colors, hairline, radius, typography } from '../theme';
+import { OtherGenderIcon } from './icons/FormIcons';
 
 const OPTION_HEIGHT = 43.998;
 
 export type Gender = 'male' | 'female' | 'other';
 
-const OPTIONS: ReadonlyArray<{ value: Gender; label: string }> = [
+/** `Icon` renders next to the label; only "Other" carries one (Figma node 518:7879). */
+const OPTIONS: ReadonlyArray<{
+  value: Gender;
+  label: string;
+  Icon?: typeof OtherGenderIcon;
+}> = [
   { value: 'male', label: '♂ Male' },
   { value: 'female', label: '♀ Female' },
-  { value: 'other', label: '⚧ Other' },
+  { value: 'other', label: 'Other', Icon: OtherGenderIcon },
 ];
 
 type GenderSelectorProps = {
@@ -43,6 +49,7 @@ export function GenderSelector({
     <View style={[styles.row, style]}>
       {OPTIONS.map(option => {
         const selected = option.value === value;
+        const tint = selected ? accent : colors.text.secondary;
 
         return (
           <Pressable
@@ -56,16 +63,19 @@ export function GenderSelector({
               pressed && styles.pressed,
             ]}
           >
-            <Text
-              style={[
-                styles.label,
-                selected
-                  ? [styles.labelSelected, { color: accent }]
-                  : styles.labelIdle,
-              ]}
-            >
-              {option.label}
-            </Text>
+            <View style={styles.optionContent}>
+              {option.Icon && <option.Icon size={14} color={tint} />}
+              <Text
+                style={[
+                  styles.label,
+                  selected
+                    ? [styles.labelSelected, { color: accent }]
+                    : styles.labelIdle,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </View>
           </Pressable>
         );
       })}
@@ -92,6 +102,11 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  optionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   label: {
     textAlign: 'center',

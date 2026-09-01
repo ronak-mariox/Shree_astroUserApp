@@ -86,8 +86,6 @@ export type ConsultAstrologer = {
   experience: string;
   /** "4,820" — how many consultations they have taken. */
   orders: string;
-  /** "4.7", or a dash before anyone has rated them. */
-  rating: string;
   /** Shown only while they are busy, e.g. "Wait 2 min". */
   wait?: string;
   /** Struck-through list price. */

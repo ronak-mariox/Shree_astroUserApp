@@ -12,6 +12,23 @@
  */
 
 import { client } from './client';
+import {
+  DUMMY_AI_THREAD,
+  DUMMY_ASTROLOGERS,
+  DUMMY_CONSULTATIONS,
+  DUMMY_FAVOURITE_IDS,
+  DUMMY_HOME,
+  DUMMY_HOROSCOPES,
+  DUMMY_KUNDLIS,
+  DUMMY_MESSAGES,
+  DUMMY_NOTIFICATIONS,
+  DUMMY_SETTINGS,
+  DUMMY_TRANSACTIONS,
+  DUMMY_USER,
+  DUMMY_WALLET,
+  nextTicketReference,
+} from './dummyData';
+import { USE_DUMMY_DATA } from './dummyMode';
 
 /* -------------------------------------------------------------------------- */
 /* Translating between the API's ids and the screens' words                   */
@@ -85,12 +102,14 @@ export type Home = {
 
 /** Everything the home screen prints, in one call. */
 export async function fetchHome(): Promise<Home> {
+  if (USE_DUMMY_DATA) return DUMMY_HOME;
   const { data } = await client.get<Home>('/users/me/home');
   return data;
 }
 
 /** Today's reading for one sign, or all twelve. Open to anyone. */
 export async function fetchHoroscope(sign?: string) {
+  if (USE_DUMMY_DATA) return sign ? DUMMY_HOROSCOPES[sign] : DUMMY_HOROSCOPES;
   const { data } = await client.get('/horoscope', { params: { sign } });
   return sign ? data.horoscope : data;
 }
@@ -110,8 +129,6 @@ export type DirectoryCard = {
   expertise: string[];
   languages: string[];
   experienceYears: number;
-  rating: number;
-  ratingCount: number;
   consultations: number;
   badges: string[];
   rates: {
@@ -130,18 +147,62 @@ export type DirectoryFilters = {
   online?: boolean;
   minExperience?: number;
   maxRate?: number;
-  minRating?: number;
   gender?: string;
   badges?: string[];
-  sort?: 'recommended' | 'rating' | 'experience' | 'price_low' | 'price_high' | 'popular';
+  sort?: 'recommended' | 'experience' | 'price_low' | 'price_high' | 'popular';
   page?: number;
   limit?: number;
 };
+
+/** Runs the same narrowing the server would, over the fixture directory. */
+function filterDummyAstrologers(filters: DirectoryFilters): DirectoryCard[] {
+  const search = filters.search?.trim().toLowerCase();
+
+  let rows = DUMMY_ASTROLOGERS.filter(row => {
+    if (search && !row.name.toLowerCase().includes(search) && !row.expertise.some(item => item.includes(search))) {
+      return false;
+    }
+    if (filters.online && !row.online) return false;
+    if (filters.expertise?.length && !filters.expertise.some(item => row.expertise.includes(item))) return false;
+    if (filters.languages?.length && !filters.languages.some(item => row.languages.includes(item))) return false;
+    if (filters.topics?.length && !filters.topics.some(item => row.topics.includes(item))) return false;
+    if (filters.badges?.length && !filters.badges.some(item => row.badges.includes(item))) return false;
+    if (filters.gender && row.gender !== filters.gender) return false;
+    if (filters.minExperience !== undefined && row.experienceYears < filters.minExperience) return false;
+    if (filters.maxRate !== undefined && row.rates.chat.now > filters.maxRate) return false;
+    return true;
+  });
+
+  switch (filters.sort) {
+    case 'experience':
+      rows = [...rows].sort((a, b) => b.experienceYears - a.experienceYears);
+      break;
+    case 'price_low':
+      rows = [...rows].sort((a, b) => a.rates.chat.now - b.rates.chat.now);
+      break;
+    case 'price_high':
+      rows = [...rows].sort((a, b) => b.rates.chat.now - a.rates.chat.now);
+      break;
+    case 'popular':
+      rows = [...rows].sort((a, b) => b.consultations - a.consultations);
+      break;
+    default:
+      break;
+  }
+
+  const limit = filters.limit ?? rows.length;
+  return rows.slice(0, limit);
+}
 
 /** The Find Astrologers and Consult screens. */
 export async function fetchAstrologers(
   filters: DirectoryFilters = {},
 ): Promise<{ items: DirectoryCard[]; total: number }> {
+  if (USE_DUMMY_DATA) {
+    const items = filterDummyAstrologers(filters);
+    return { items, total: items.length };
+  }
+
   const { data } = await client.get('/astrologers', {
     params: {
       ...filters,
@@ -155,26 +216,38 @@ export async function fetchAstrologers(
   return data;
 }
 
-/** The astrologer detail screen: the card fields plus about, gallery, reviews. */
+/** The astrologer detail screen: the card fields plus about and gallery. */
 export async function fetchAstrologer(astrologerId: string) {
+  if (USE_DUMMY_DATA) {
+    const astrologer = DUMMY_ASTROLOGERS.find(row => row.id === astrologerId);
+    if (!astrologer) {
+      throw new Error('That astrologer is no longer listed.');
+    }
+    return astrologer;
+  }
   const { data } = await client.get(`/astrologers/${astrologerId}`);
   return data.astrologer;
 }
 
-export async function fetchAstrologerReviews(astrologerId: string, page = 1) {
-  const { data } = await client.get(`/astrologers/${astrologerId}/reviews`, {
-    params: { page, limit: 20 },
-  });
-  return data.items ?? [];
-}
-
 /** Adds or removes a favourite. The answer says which way it went. */
 export async function toggleFavourite(astrologerId: string): Promise<boolean> {
+  if (USE_DUMMY_DATA) {
+    const index = DUMMY_FAVOURITE_IDS.indexOf(astrologerId);
+    if (index === -1) {
+      DUMMY_FAVOURITE_IDS.push(astrologerId);
+      return true;
+    }
+    DUMMY_FAVOURITE_IDS.splice(index, 1);
+    return false;
+  }
   const { data } = await client.post(`/users/me/favourites/${astrologerId}`, {});
   return Boolean(data.favourite);
 }
 
 export async function fetchFavourites(): Promise<DirectoryCard[]> {
+  if (USE_DUMMY_DATA) {
+    return DUMMY_ASTROLOGERS.filter(row => DUMMY_FAVOURITE_IDS.includes(row.id));
+  }
   const { data } = await client.get('/users/me/favourites');
   return data.items ?? [];
 }
@@ -184,6 +257,7 @@ export async function fetchFavourites(): Promise<DirectoryCard[]> {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchProfile() {
+  if (USE_DUMMY_DATA) return DUMMY_USER;
   const { data } = await client.get('/users/me');
   return data.user;
 }
@@ -203,6 +277,14 @@ export async function saveProfile(changes: {
   placeOfBirth?: string;
   photo?: { uri: string; name?: string; type?: string };
 }) {
+  if (USE_DUMMY_DATA) {
+    const { photo, fullName, ...fields } = changes;
+    Object.assign(DUMMY_USER, fields);
+    if (fullName) DUMMY_USER.name = fullName;
+    if (photo) DUMMY_USER.avatarUrl = photo.uri;
+    return { ...DUMMY_USER };
+  }
+
   if (!changes.photo) {
     const { data } = await client.patch('/users/me', changes);
     return data.user;
@@ -225,6 +307,7 @@ export async function saveProfile(changes: {
 }
 
 export async function updateNotificationPrefs(prefs: Record<string, boolean>) {
+  if (USE_DUMMY_DATA) return prefs;
   const { data } = await client.patch('/users/me/notification-prefs', prefs);
   return data.notificationPrefs;
 }
@@ -232,6 +315,7 @@ export async function updateNotificationPrefs(prefs: Record<string, boolean>) {
 /* ----------------------------------------------------------------- kundlis */
 
 export async function fetchKundlis() {
+  if (USE_DUMMY_DATA) return DUMMY_KUNDLIS;
   const { data } = await client.get('/users/me/kundlis');
   return data.items ?? [];
 }
@@ -246,11 +330,21 @@ export async function saveKundli(input: {
   placeOfBirth: string;
   chart?: unknown;
 }) {
+  if (USE_DUMMY_DATA) {
+    const kundli = { id: `kundli-${DUMMY_KUNDLIS.length + 1}`, createdAt: new Date().toISOString(), ...input };
+    DUMMY_KUNDLIS.push(kundli);
+    return kundli;
+  }
   const { data } = await client.post('/users/me/kundlis', input);
   return data.kundli;
 }
 
 export async function deleteKundli(kundliId: string) {
+  if (USE_DUMMY_DATA) {
+    const index = DUMMY_KUNDLIS.findIndex(entry => entry.id === kundliId);
+    if (index !== -1) DUMMY_KUNDLIS.splice(index, 1);
+    return;
+  }
   await client.delete(`/users/me/kundlis/${kundliId}`);
 }
 
@@ -259,12 +353,29 @@ export async function deleteKundli(kundliId: string) {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchWallet() {
+  if (USE_DUMMY_DATA) return DUMMY_WALLET;
   const { data } = await client.get('/wallet');
   return data.wallet;
 }
 
 /** The ledger. `filter` is what the screen's three tabs send. */
 export async function fetchTransactions(filter: 'all' | 'added' | 'spent' = 'all') {
+  if (USE_DUMMY_DATA) {
+    const rows = DUMMY_TRANSACTIONS.filter(row => {
+      if (filter === 'added') return row.direction === 'credit';
+      if (filter === 'spent') return row.direction === 'debit';
+      return true;
+    });
+    return rows.map(row => ({
+      id: row._id,
+      title: row.title || titleCase(row.type),
+      detail: titleCase(row.type),
+      timestamp: dateTime(row.createdAt),
+      amount: `${row.direction === 'credit' ? '+' : '−'} ${rupees(row.amount)}`,
+      reference: row.reference,
+      credit: row.direction === 'credit',
+    }));
+  }
   const { data } = await client.get('/wallet/transactions', {
     params: { filter, limit: 50 },
   });
@@ -286,12 +397,46 @@ export async function fetchTransactions(filter: 'all' | 'added' | 'spent' = 'all
  * app confirms straight away. When one is added, take its result to
  * `confirmTopUp` instead.
  */
+/** Amounts `startTopUp` has quoted but not yet settled, keyed by transactionId. */
+const dummyPendingTopUps = new Map<string, number>();
+
 export async function startTopUp(amount: number) {
+  if (USE_DUMMY_DATA) {
+    const transactionId = `pending-${Date.now()}`;
+    dummyPendingTopUps.set(transactionId, amount);
+    return {
+      transactionId,
+      reference: `TXN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      orderId: `order-${transactionId}`,
+      amount,
+    };
+  }
   const { data } = await client.post('/wallet/topup', { amount });
   return data as { transactionId: string; reference: string; orderId: string; amount: number };
 }
 
 export async function confirmTopUp(transactionId: string, paymentId?: string) {
+  if (USE_DUMMY_DATA) {
+    const amount = dummyPendingTopUps.get(transactionId) ?? 0;
+    dummyPendingTopUps.delete(transactionId);
+
+    DUMMY_WALLET.balance += amount;
+    DUMMY_WALLET.totalAdded += amount;
+    DUMMY_WALLET.lastTransactionAt = new Date().toISOString();
+    DUMMY_HOME.wallet.balance = DUMMY_WALLET.balance;
+
+    const transaction = {
+      _id: transactionId,
+      reference: `TXN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      title: 'Wallet Top-up',
+      type: 'topup',
+      direction: 'credit',
+      amount,
+      createdAt: new Date().toISOString(),
+    };
+    DUMMY_TRANSACTIONS.unshift(transaction);
+    return transaction;
+  }
   const { data } = await client.post('/wallet/topup/confirm', { transactionId, paymentId });
   return data.transaction;
 }
@@ -316,6 +461,17 @@ export type Intake = {
 
 /** Asks an astrologer for a chat. The rate is fixed at this moment. */
 export async function requestChat(astrologerId: string, intake: Intake, channel = 'chat') {
+  if (USE_DUMMY_DATA) {
+    const astrologer = DUMMY_ASTROLOGERS.find(row => row.id === astrologerId);
+    const service = channel === 'call' ? astrologer?.rates.call : astrologer?.rates.chat;
+    return {
+      chatId: `chat-${Date.now()}`,
+      status: astrologer?.busy ? 'requested' : 'active',
+      ratePerMinute: service?.now ?? 0,
+      freeMinutes: astrologer?.freeMinutes ?? 0,
+      expiresInSeconds: 90,
+    };
+  }
   const { data } = await client.post('/chats', { astrologerId, channel, intake });
   return data as {
     chatId: string;
@@ -327,11 +483,15 @@ export async function requestChat(astrologerId: string, intake: Intake, channel 
 }
 
 export async function cancelChat(chatId: string) {
+  if (USE_DUMMY_DATA) return { chatId, status: 'cancelled' };
   const { data } = await client.post(`/chats/${chatId}/cancel`, {});
   return data;
 }
 
 export async function endChat(chatId: string, reason?: string) {
+  if (USE_DUMMY_DATA) {
+    return { chatId, status: 'ended', durationSeconds: 0, amountCharged: 0 };
+  }
   const { data } = await client.post(`/chats/${chatId}/end`, { reason });
   return data as {
     chatId: string;
@@ -341,13 +501,23 @@ export async function endChat(chatId: string, reason?: string) {
   };
 }
 
-export async function rateChat(chatId: string, rating: number, comment?: string) {
-  const { data } = await client.post(`/chats/${chatId}/rate`, { rating, comment });
-  return data;
-}
-
 /** The consultation history screen. */
 export async function fetchConsultations(status?: string) {
+  if (USE_DUMMY_DATA) {
+    const rows = status ? DUMMY_CONSULTATIONS.filter(row => row.status === status) : DUMMY_CONSULTATIONS;
+    return rows.map(row => ({
+      id: row.id,
+      astrologer: row.with?.name ?? 'Astrologer',
+      photo: row.with?.photo,
+      topic: titleCase(row.topic ?? 'general'),
+      timestamp: dateTime(row.endedAt ?? row.createdAt),
+      amount: rupees(row.amountCharged),
+      duration: minutesOf(row.durationSeconds),
+      channel: row.channel === 'call' ? 'voice' : 'chat',
+      status: row.status,
+    }));
+  }
+
   const { data } = await client.get('/chats', { params: { status, limit: 50 } });
 
   return (data.items ?? []).map((row: any) => ({
@@ -359,13 +529,13 @@ export async function fetchConsultations(status?: string) {
     amount: rupees(row.amountCharged),
     duration: minutesOf(row.durationSeconds),
     channel: row.channel === 'call' ? 'voice' : 'chat',
-    rating: row.rating,
     status: row.status,
   }));
 }
 
 /** One page of the transcript, oldest first. */
 export async function fetchMessages(chatId: string, beforeSeq?: number) {
+  if (USE_DUMMY_DATA) return DUMMY_MESSAGES;
   const { data } = await client.get(`/chats/${chatId}/messages`, {
     params: { beforeSeq, limit: 50 },
   });
@@ -374,6 +544,16 @@ export async function fetchMessages(chatId: string, beforeSeq?: number) {
 
 /** Sending without a socket — the fallback when the connection is down. */
 export async function sendMessage(chatId: string, text: string, clientMessageId?: string) {
+  if (USE_DUMMY_DATA) {
+    const message = {
+      id: clientMessageId ?? `msg-${DUMMY_MESSAGES.length + 1}`,
+      senderRole: 'user',
+      content: { text },
+      createdAt: new Date().toISOString(),
+    };
+    DUMMY_MESSAGES.push(message);
+    return message;
+  }
   const { data } = await client.post(`/chats/${chatId}/messages`, {
     type: 'text',
     content: { text },
@@ -388,12 +568,31 @@ export async function sendMessage(chatId: string, text: string, clientMessageId?
 
 /** One thread per seeker, kept for good. Free — nothing is ever billed. */
 export async function fetchAiThread() {
+  if (USE_DUMMY_DATA) return DUMMY_AI_THREAD;
   const { data } = await client.get('/chats/ai', { params: { limit: 50 } });
   return data as { chatId: string; items: any[] };
 }
 
 /** Returns both turns, so the screen can append them together. */
 export async function askAi(text: string, clientMessageId?: string) {
+  if (USE_DUMMY_DATA) {
+    const question = {
+      id: clientMessageId ?? `ai-msg-${DUMMY_AI_THREAD.items.length + 1}`,
+      senderRole: 'user',
+      content: { text },
+      createdAt: new Date().toISOString(),
+    };
+    const answer = {
+      id: `ai-msg-${DUMMY_AI_THREAD.items.length + 2}`,
+      senderRole: 'ai',
+      content: {
+        text: 'The stars are still aligning on that one — in the meantime, focus on what you can control today.',
+      },
+      createdAt: new Date().toISOString(),
+    };
+    DUMMY_AI_THREAD.items.push(question, answer);
+    return { chatId: DUMMY_AI_THREAD.chatId, question, answer };
+  }
   const { data } = await client.post('/chats/ai/messages', { text, clientMessageId });
   return data as { chatId: string; question: any; answer: any };
 }
@@ -403,16 +602,43 @@ export async function askAi(text: string, clientMessageId?: string) {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchNotifications() {
+  if (USE_DUMMY_DATA) {
+    return {
+      items: DUMMY_NOTIFICATIONS,
+      total: DUMMY_NOTIFICATIONS.length,
+      unread: DUMMY_NOTIFICATIONS.filter(row => !row.readAt).length,
+    };
+  }
   const { data } = await client.get('/notifications', { params: { limit: 50 } });
   return data as { items: any[]; total: number; unread: number };
 }
 
 export async function markNotificationsRead(notificationId?: string) {
+  if (USE_DUMMY_DATA) {
+    const now = new Date().toISOString();
+    for (const notification of DUMMY_NOTIFICATIONS) {
+      if (!notificationId || notification.id === notificationId) {
+        notification.readAt = now;
+      }
+    }
+    return { ok: true };
+  }
   const { data } = await client.post('/notifications/read', { notificationId });
   return data;
 }
 
 export async function raiseTicket(issueType: string, description: string, chatId?: string) {
+  if (USE_DUMMY_DATA) {
+    return {
+      id: `ticket-${Date.now()}`,
+      reference: nextTicketReference(),
+      issueType,
+      description,
+      chatId,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+  }
   const { data } = await client.post('/support/tickets', { issueType, description, chatId });
   return data.ticket;
 }
@@ -423,6 +649,7 @@ export async function raiseTicket(issueType: string, description: string, chatId
 
 /** Read on launch: recharge limits, feature switches, app versions. */
 export async function fetchSettings() {
+  if (USE_DUMMY_DATA) return DUMMY_SETTINGS;
   const { data } = await client.get('/settings');
   return data.settings as {
     minRecharge: number;
