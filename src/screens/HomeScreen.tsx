@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Image,
   Pressable,
@@ -26,8 +26,10 @@ import { SectionHeader } from '../components/SectionHeader';
 import { HEADER_STARS, StarField } from '../components/StarField';
 import { BellIcon } from '../components/icons/BellIcon';
 import { SearchIcon } from '../components/icons/SearchIcon';
+import { ZODIAC_ICONS } from '../components/icons/ZodiacIcons';
 import { quickActions, type QuickAction } from '../data/home';
 import { useApi } from '../hooks/useApi';
+import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import { avatarOf, portraitOf } from '../utils/images';
 import {
@@ -85,8 +87,8 @@ export function HomeScreen({
 }: HomeScreenProps) {
   /** Everything this screen prints, in one call. */
   const home = useApi(() => api.fetchHome(), []);
-  /** The carousel is the directory's first few, best rated first. */
-  const directory = useApi(() => api.fetchAstrologers({ sort: 'rating', limit: 8 }), []);
+  /** The carousel is the directory's first few, most popular first. */
+  const directory = useApi(() => api.fetchAstrologers({ sort: 'popular', limit: 8 }), []);
 
   const me = home.data?.profile;
   const balance = home.data?.wallet.balance ?? 0;
@@ -95,6 +97,7 @@ export function HomeScreen({
   const zodiacLine = me?.sunSign
     ? `${me.sunSign}${me.dateOfBirth ? ` · ${api.shortDate(me.dateOfBirth)}` : ''}`
     : 'Add your birth details';
+  const ZodiacGlyph = me?.sunSign ? ZODIAC_ICONS[me.sunSign] : undefined;
 
   /** Directory cards, in the shape the carousel draws. */
   const astrologers = (directory.data?.items ?? []).map(row => ({
@@ -120,6 +123,11 @@ export function HomeScreen({
   }));
 
   const insets = useSafeAreaInsets();
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
   return (
     <View style={styles.screen}>
@@ -130,7 +138,7 @@ export function HomeScreen({
           <StarField
             stars={HEADER_STARS}
             color={colors.border.strong}
-            frameHeight={HEADER_HEIGHT}
+            frameHeight={px(HEADER_HEIGHT)}
           />
 
           <View
@@ -139,7 +147,7 @@ export function HomeScreen({
               {
                 paddingTop:
                   insets.top +
-                  (DESIGN_PADDING_TOP - designFrame.statusBarHeight),
+                  px(DESIGN_PADDING_TOP - designFrame.statusBarHeight),
               },
             ]}
           >
@@ -148,7 +156,12 @@ export function HomeScreen({
                 <Text style={styles.greeting}>✦ Namaste</Text>
                 <Text style={styles.name}>{me?.name ?? ''}</Text>
                 <View style={styles.zodiacRow}>
-                  <Text style={styles.zodiacGlyph}>{me?.sunSign ? '✦' : ''}</Text>
+                  {me?.sunSign &&
+                    (ZodiacGlyph ? (
+                      <ZodiacGlyph size={px(12)} />
+                    ) : (
+                      <Text style={styles.zodiacGlyph}>✦</Text>
+                    ))}
                   <Text style={styles.zodiacLine}>{zodiacLine}</Text>
                 </View>
               </View>
@@ -307,178 +320,194 @@ export function HomeScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  header: {
-    backgroundColor: colors.brandYellow,
-    overflow: 'hidden',
-  },
-  headerContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  identityRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  identity: {
-    flex: 1,
-  },
-  greeting: {
-    ...typography.greeting,
-    color: colors.text.onYellow,
-  },
-  name: {
-    ...typography.pageTitle,
-    color: colors.text.onYellow,
-    paddingTop: 2,
-  },
-  zodiacRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingTop: 2,
-  },
-  zodiacGlyph: {
-    ...typography.caption,
-    color: colors.text.zodiac,
-  },
-  zodiacLine: {
-    ...typography.caption,
-    color: colors.text.onYellowFaint,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  glassButton: {
-    width: ACTION_BUTTON_SIZE,
-    height: ACTION_BUTTON_SIZE,
-    borderRadius: radius.field,
-    borderWidth: hairline,
-    borderColor: colors.border.glass,
-    backgroundColor: colors.glass.button,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notificationDot: {
-    position: 'absolute',
-    left: 23.49,
-    top: 7,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success.accent,
-  },
-  avatarButton: {
-    width: ACTION_BUTTON_SIZE,
-    height: ACTION_BUTTON_SIZE,
-    borderRadius: radius.field,
-    overflow: 'hidden',
-  },
-  avatar: {
-    width: '100%',
-    height: '100%',
-  },
-  walletCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: radius.panel,
-    borderWidth: hairline,
-    borderColor: colors.border.glassWarm,
-    backgroundColor: colors.glass.card,
-    paddingHorizontal: 18.755,
-    paddingVertical: 16.755,
-    marginTop: spacing.xl,
-  },
-  walletCopy: {
-    flex: 1,
-  },
-  walletLabel: {
-    ...typography.eyebrow,
-    color: colors.text.onYellowStrongMuted,
-  },
-  walletBalance: {
-    ...typography.heading,
-    color: colors.text.onYellow,
-    paddingTop: 2,
-  },
-  walletHint: {
-    ...typography.footnoteSmall,
-    color: colors.text.onYellowGhost,
-    paddingTop: 2,
-  },
-  addButton: {
-    width: 71,
-    height: 37.993,
-    borderRadius: radius.button,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  addLabel: {
-    ...typography.footnoteStrong,
-    color: colors.text.inverse,
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  body: {
-    paddingHorizontal: spacing.section,
-    paddingTop: spacing.lg,
-    paddingBottom: 10,
-  },
-  section: {
-    paddingTop: 22,
-  },
-  quickActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.section,
-    paddingTop: 11,
-  },
-  quickAction: {
-    alignItems: 'center',
-    width: QUICK_ACTION_SIZE + spacing.xl,
-  },
-  quickActionImage: {
-    width: QUICK_ACTION_SIZE,
-    height: QUICK_ACTION_SIZE,
-  },
-  quickActionCircle: {
-    borderRadius: QUICK_ACTION_SIZE / 2,
-  },
-  quickActionRounded: {
-    borderRadius: radius.sheet,
-  },
-  quickActionTitle: {
-    ...typography.tileTitle,
-    color: colors.text.primary,
-    textAlign: 'center',
-    paddingTop: spacing.sm,
-  },
-  quickActionSubtitle: {
-    ...typography.footnoteSmall,
-    color: colors.text.muted,
-    textAlign: 'center',
-  },
-  astrologerScroller: {
-    marginTop: spacing.rowGap,
-    // Cards carry a soft drop shadow that the scroller must not clip.
-    overflow: 'visible',
-  },
-  astrologers: {
-    gap: spacing.md,
-    paddingBottom: 6,
-  },
-  consultations: {
-    paddingTop: spacing.rowGap,
-    gap: 10,
-  },
-});
+/**
+ * `px` scales every Figma-measured size for the current window width (see
+ * `useResponsive`); `contentWidth`/`isTablet` cap and centre the header and
+ * body copy on a tablet instead of letting the phone layout stretch edge to
+ * edge — horizontal scrollers (the astrologer rail) still use the full
+ * window so they keep reading as a rail rather than a cramped column.
+ */
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.surface,
+    },
+    header: {
+      backgroundColor: colors.brandYellow,
+      overflow: 'hidden',
+    },
+    headerContent: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: px(spacing.lg),
+      paddingBottom: px(spacing.xl),
+    },
+    identityRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+    },
+    identity: {
+      flex: 1,
+    },
+    greeting: {
+      ...typography.greeting,
+      color: colors.text.onYellow,
+    },
+    name: {
+      ...typography.pageTitle,
+      color: colors.text.onYellow,
+      paddingTop: 2,
+    },
+    zodiacRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      paddingTop: 2,
+    },
+    zodiacGlyph: {
+      ...typography.caption,
+      color: colors.text.zodiac,
+    },
+    zodiacLine: {
+      ...typography.caption,
+      color: colors.text.onYellowFaint,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      gap: px(10),
+    },
+    glassButton: {
+      width: px(ACTION_BUTTON_SIZE),
+      height: px(ACTION_BUTTON_SIZE),
+      borderRadius: radius.field,
+      borderWidth: hairline,
+      borderColor: colors.border.glass,
+      backgroundColor: colors.glass.button,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    notificationDot: {
+      position: 'absolute',
+      left: px(23.49),
+      top: px(7),
+      width: px(8),
+      height: px(8),
+      borderRadius: px(4),
+      backgroundColor: colors.success.accent,
+    },
+    avatarButton: {
+      width: px(ACTION_BUTTON_SIZE),
+      height: px(ACTION_BUTTON_SIZE),
+      borderRadius: radius.field,
+      overflow: 'hidden',
+    },
+    avatar: {
+      width: '100%',
+      height: '100%',
+    },
+    walletCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderRadius: radius.panel,
+      borderWidth: hairline,
+      borderColor: colors.border.glassWarm,
+      backgroundColor: colors.glass.card,
+      paddingHorizontal: px(18.755),
+      paddingVertical: px(16.755),
+      marginTop: px(spacing.xl),
+    },
+    walletCopy: {
+      flex: 1,
+    },
+    walletLabel: {
+      ...typography.eyebrow,
+      color: colors.text.onYellowStrongMuted,
+    },
+    walletBalance: {
+      ...typography.heading,
+      color: colors.text.onYellow,
+      paddingTop: 2,
+    },
+    walletHint: {
+      ...typography.footnoteSmall,
+      color: colors.text.onYellowGhost,
+      paddingTop: 2,
+    },
+    addButton: {
+      width: px(71),
+      height: px(37.993),
+      borderRadius: radius.button,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    addLabel: {
+      ...typography.footnoteStrong,
+      color: colors.text.inverse,
+      textAlign: 'center',
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+    body: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: px(spacing.section),
+      paddingTop: px(spacing.lg),
+      paddingBottom: px(10),
+    },
+    section: {
+      paddingTop: px(22),
+    },
+    quickActions: {
+      flexDirection: 'row',
+      justifyContent: isTablet ? 'flex-start' : 'space-between',
+      gap: isTablet ? px(spacing.xxxl) : 0,
+      paddingHorizontal: px(spacing.section),
+      paddingTop: px(11),
+    },
+    quickAction: {
+      alignItems: 'center',
+      width: isTablet ? undefined : px(QUICK_ACTION_SIZE) + px(spacing.xl),
+    },
+    quickActionImage: {
+      width: px(QUICK_ACTION_SIZE),
+      height: px(QUICK_ACTION_SIZE),
+    },
+    quickActionCircle: {
+      borderRadius: px(QUICK_ACTION_SIZE) / 2,
+    },
+    quickActionRounded: {
+      borderRadius: radius.sheet,
+    },
+    quickActionTitle: {
+      ...typography.tileTitle,
+      color: colors.text.primary,
+      textAlign: 'center',
+      paddingTop: spacing.sm,
+    },
+    quickActionSubtitle: {
+      ...typography.footnoteSmall,
+      color: colors.text.muted,
+      textAlign: 'center',
+    },
+    astrologerScroller: {
+      marginTop: px(spacing.rowGap),
+      // Cards carry a soft drop shadow that the scroller must not clip.
+      overflow: 'visible',
+    },
+    astrologers: {
+      gap: px(spacing.md),
+      paddingBottom: px(6),
+    },
+    consultations: {
+      paddingTop: px(spacing.rowGap),
+      gap: px(10),
+    },
+  });
+}

@@ -1,12 +1,16 @@
 import React from 'react';
-import { Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { StarField } from '../components/StarField';
-import { ZodiacWheel } from '../components/ZodiacWheel';
 import { colors, radius, spacing, typography } from '../theme';
+
+/** The zodiac-wheel emblem, cropped from the brand sprite (Figma node 518:7854). */
+const HERO_IMAGE = require('../assets/images/welcome-hero-emblem.png');
+const HERO_IMAGE_WIDTH = 217;
+const HERO_IMAGE_HEIGHT = 185;
 
 type WelcomeScreenProps = {
   onLogin?: () => void;
@@ -34,7 +38,7 @@ export function WelcomeScreen({
         <StarField />
         <View style={styles.heroContent}>
           <Text style={styles.wordmark}>Shree Astro</Text>
-          <ZodiacWheel />
+          <Image source={HERO_IMAGE} style={styles.heroImage} resizeMode="cover" />
         </View>
       </View>
 
@@ -89,6 +93,15 @@ const styles = StyleSheet.create({
     color: colors.text.onYellow,
     textAlign: 'center',
     marginBottom: spacing.xxl,
+  },
+  heroImage: {
+    width: HERO_IMAGE_WIDTH,
+    height: HERO_IMAGE_HEIGHT,
+    // Figma's own asymmetric radii — a "flame" silhouette, not a plain circle.
+    borderTopLeftRadius: 59,
+    borderTopRightRadius: 59,
+    borderBottomLeftRadius: 59,
+    borderBottomRightRadius: 119,
   },
   sheet: {
     marginTop: -SHEET_OVERLAP,

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,7 +16,15 @@ import { BackButton } from '../components/BackButton';
 import { FormField } from '../components/FormField';
 import { GenderSelector, type Gender } from '../components/GenderSelector';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { WheelPickerDialog } from '../components/WheelPickerDialog';
 import { CameraIcon } from '../components/icons/CameraIcon';
+import { CalendarIcon, ClockIcon, LocationPinIcon } from '../components/icons/FormIcons';
+import {
+  DAY_COLUMN,
+  MONTHS,
+  MONTH_COLUMN,
+  YEAR_COLUMN,
+} from '../data/chatIntake';
 import { account } from '../data/profile';
 import {
   isFormValid,
@@ -34,6 +43,22 @@ import {
   spacing,
   typography,
 } from '../theme';
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+/** "15/08/1999", the format {@link validateDateOfBirth} expects. */
+const formatDob = (day: string, month: string, year: string) =>
+  `${day}/${pad2(MONTHS.indexOf(month as (typeof MONTHS)[number]) + 1)}/${year}`;
+
+/** The reverse of {@link formatDob} — falls back to a sensible default. */
+const parseDob = (value: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) {
+    return { day: '01', month: 'Jan', year: '2000' };
+  }
+  const [, day, month, year] = match;
+  return { day, month: MONTHS[Number(month) - 1] ?? 'Jan', year };
+};
 
 /** Top padding Figma drew, measured from the top of the status bar. */
 const DESIGN_PADDING_TOP = 56;
@@ -69,6 +94,8 @@ export function EditProfileScreen({
   const [gender, setGender] = useState<Gender>('male');
   /** Errors stay hidden until Save is pressed, then follow every keystroke. */
   const [submitted, setSubmitted] = useState(false);
+  /** Whether the Date of Birth wheel is open. */
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const errors: Record<string, FieldError> = {
     fullName: validateName(fullName),
@@ -122,7 +149,7 @@ export function EditProfileScreen({
 
             <View style={styles.avatarWrapper}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarGlyph}>{account.avatarGlyph}</Text>
+                <Image source={account.avatarPhoto} style={styles.avatarImage} resizeMode="cover" />
               </View>
               <Pressable
                 accessibilityRole="button"
@@ -163,17 +190,24 @@ export function EditProfileScreen({
               autoComplete="tel"
               error={shown('phone')}
             />
-            <FormField
-              label="Date of Birth"
-              labelIcon="📅"
-              value={dateOfBirth}
-              onChangeText={setDateOfBirth}
-              keyboardType="numbers-and-punctuation"
-              error={shown('dateOfBirth')}
-            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Date of Birth"
+              onPress={() => setDatePickerOpen(true)}
+            >
+              <View pointerEvents="none">
+                <FormField
+                  label="Date of Birth"
+                  labelIcon={<CalendarIcon size={15} />}
+                  value={dateOfBirth}
+                  editable={false}
+                  error={shown('dateOfBirth')}
+                />
+              </View>
+            </Pressable>
             <FormField
               label="Time of Birth"
-              labelIcon="⏰"
+              labelIcon={<ClockIcon size={16} />}
               value={timeOfBirth}
               onChangeText={setTimeOfBirth}
               hint="Enter approximate time if exact time is unknown"
@@ -181,7 +215,7 @@ export function EditProfileScreen({
             />
             <FormField
               label="Place of Birth"
-              labelIcon="📍"
+              labelIcon={<LocationPinIcon size={14} />}
               value={placeOfBirth}
               onChangeText={setPlaceOfBirth}
               error={shown('placeOfBirth')}
@@ -205,6 +239,22 @@ export function EditProfileScreen({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <WheelPickerDialog
+        visible={datePickerOpen}
+        title="Select Date"
+        columns={[
+          { key: 'day', values: DAY_COLUMN },
+          { key: 'month', values: MONTH_COLUMN },
+          { key: 'year', values: YEAR_COLUMN },
+        ]}
+        value={parseDob(dateOfBirth)}
+        onCancel={() => setDatePickerOpen(false)}
+        onSubmit={chosen => {
+          setDateOfBirth(formatDob(chosen.day, chosen.month, chosen.year));
+          setDatePickerOpen(false);
+        }}
+      />
     </View>
   );
 }
@@ -244,10 +294,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarGlyph: {
-    fontSize: 44,
-    lineHeight: 66,
-    color: colors.text.onYellow,
+  avatarImage: {
+    width: 83,
+    height: 84,
+    borderRadius: 26,
   },
   badge: {
     position: 'absolute',

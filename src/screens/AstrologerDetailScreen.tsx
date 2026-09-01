@@ -13,17 +13,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from '../components/BrandGradient';
 import {
-  AnonymousIcon,
   BackArrowIcon,
   CallNowIcon,
   CallRateIcon,
-  CaretDownIcon,
   ChatNowIcon,
   ChatRateIcon,
   FollowIcon,
   KebabIcon,
   LanguageIcon,
-  StarRowIcon,
   WalletBadgeIcon,
 } from '../components/icons/DetailIcons';
 import {
@@ -33,8 +30,9 @@ import {
   type AstrologerSummary,
 } from '../data/astrologerProfile';
 import { useApi } from '../hooks/useApi';
+import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
-import { avatarOf, portraitOf } from '../utils/images';
+import { portraitOf } from '../utils/images';
 import {
   colors,
   designFrame,
@@ -48,10 +46,7 @@ import {
 const DESIGN_PADDING_TOP = 53.63;
 const PORTRAIT = 81.824;
 const MEDIA_TILE = 82.719;
-const BAR_TRACK = 205.4;
-const BAR_HEIGHT = 5;
 const CTA_HEIGHT = 49;
-const REVIEW_AVATAR = 30;
 
 type AstrologerDetailScreenProps = {
   /** Whoever was tapped in the list; omitted, the pinned profile is shown. */
@@ -59,16 +54,14 @@ type AstrologerDetailScreenProps = {
   onBack?: () => void;
   /** The kebab in the header — report, share, block. */
   onMoreOptions?: () => void;
-  /** The "All" dropdown over the reviews. */
-  onFilterReviews?: () => void;
   onFollow?: () => void;
   onChat?: () => void;
   onCall?: () => void;
 };
 
 /**
- * Full astrologer profile: identity, rates, media, specialities, bio and
- * reviews. Figma: node 180:164498.
+ * Full astrologer profile: identity, rates, media, specialities and bio.
+ * Figma: node 180:164498.
  *
  * The frame is drawn in its own visual language, so its greys, pastel pills
  * and wide radii come from `detailPalette` rather than the shared theme.
@@ -77,12 +70,16 @@ export function AstrologerDetailScreen({
   astrologer,
   onBack,
   onMoreOptions,
-  onFilterReviews,
   onFollow,
   onChat,
   onCall,
 }: AstrologerDetailScreenProps) {
   const insets = useSafeAreaInsets();
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
   /** The pill in the header shows the seeker's own balance. */
   const wallet = useApi(() => api.fetchWallet(), []);
@@ -114,11 +111,6 @@ export function AstrologerDetailScreen({
           .filter(Boolean)
     ).map((label, index) => ({ label, fill: TAG_FILLS[index % TAG_FILLS.length] }));
 
-    const breakdown = row?.ratingBreakdown;
-    const most = breakdown
-      ? Math.max(breakdown.five, breakdown.four, breakdown.three, breakdown.two, breakdown.one, 1)
-      : 1;
-
     return {
       name: row?.name ?? astrologer?.name ?? '',
       online: row?.online ?? astrologer?.online ?? false,
@@ -130,11 +122,6 @@ export function AstrologerDetailScreen({
       photo: portraitOf(row?.photo) ?? astrologer?.photo,
       tags,
       stats: [
-        {
-          value: row?.rating ? `(${row.rating}/5)` : '(—)',
-          label: 'Ratings',
-          stars: true,
-        },
         {
           value: row?.experienceYears
             ? `${row.experienceYears} Years`
@@ -148,22 +135,6 @@ export function AstrologerDetailScreen({
       media: (row?.gallery ?? []).map((url: string) => ({ uri: url })),
       specializations: row?.specializations ?? [],
       about: row?.about ?? '',
-      score: { value: row?.rating ? String(row.rating) : '—', outOf: '/ 5' },
-      histogram: [
-        { rating: '5', count: String(breakdown?.five ?? 0), ratio: (breakdown?.five ?? 0) / most, color: '#37B99E' },
-        { rating: '4', count: String(breakdown?.four ?? 0), ratio: (breakdown?.four ?? 0) / most, color: '#DB80FE' },
-        { rating: '3', count: String(breakdown?.three ?? 0), ratio: (breakdown?.three ?? 0) / most, color: '#33C2EB' },
-        { rating: '2', count: String(breakdown?.two ?? 0), ratio: (breakdown?.two ?? 0) / most, color: '#EFC048' },
-        { rating: '1', count: String(breakdown?.one ?? 0), ratio: (breakdown?.one ?? 0) / most, color: '#FE7615' },
-      ],
-      reviews: (row?.reviews ?? []).map((review: any) => ({
-        id: review.id,
-        author: review.reviewer || 'Anonymous',
-        date: api.shortDate(review.at),
-        body: review.comment ?? '',
-        avatar: review.avatar ? avatarOf(review.avatar) : undefined,
-        reply: review.reply ? { author: row?.name ?? '', body: review.reply } : undefined,
-      })),
     };
   }, [detail.data, astrologer]);
   // Following and the About card both work off local state — neither needs a
@@ -184,7 +155,7 @@ export function AstrologerDetailScreen({
             styles.header,
             {
               paddingTop:
-                insets.top + (DESIGN_PADDING_TOP - designFrame.statusBarHeight),
+                insets.top + px(DESIGN_PADDING_TOP - designFrame.statusBarHeight),
             },
           ]}
         >
@@ -194,11 +165,11 @@ export function AstrologerDetailScreen({
             onPress={onBack}
             style={({ pressed }) => [styles.back, pressed && styles.pressed]}
           >
-            <BackArrowIcon />
+            <BackArrowIcon size={px(22.1414)} />
           </Pressable>
 
           <View style={styles.walletPill}>
-            <WalletBadgeIcon />
+            <WalletBadgeIcon size={px(20)} />
             <Text style={styles.walletLabel}>{api.rupees(wallet.data?.balance)}</Text>
           </View>
 
@@ -208,7 +179,7 @@ export function AstrologerDetailScreen({
             onPress={onMoreOptions}
             style={({ pressed }) => [styles.kebab, pressed && styles.pressed]}
           >
-            <KebabIcon />
+            <KebabIcon size={px(5.26353)} />
           </Pressable>
         </View>
 
@@ -241,7 +212,7 @@ export function AstrologerDetailScreen({
                 </View>
 
                 <View style={styles.languageRow}>
-                  <LanguageIcon />
+                  <LanguageIcon size={px(12.2314)} />
                   <Text style={styles.languages}>{profile.languages}</Text>
                 </View>
               </View>
@@ -252,7 +223,6 @@ export function AstrologerDetailScreen({
                 <React.Fragment key={stat.label}>
                   {index > 0 && <View style={styles.statDivider} />}
                   <View style={styles.stat}>
-                    {stat.stars === true && <StarRowIcon size={59} />}
                     <Text style={styles.statValue}>{stat.value}</Text>
                     <Text style={styles.statLabel}>{stat.label}</Text>
                   </View>
@@ -263,7 +233,7 @@ export function AstrologerDetailScreen({
 
           <View style={styles.rateCard}>
             <View style={styles.rate}>
-              <ChatRateIcon />
+              <ChatRateIcon size={px(23)} />
               <View>
                 <Text style={styles.rateWas}>{profile.rates.chat.was}</Text>
                 <Text style={styles.rateNow}>{profile.rates.chat.now}</Text>
@@ -274,7 +244,7 @@ export function AstrologerDetailScreen({
 
             <View style={styles.rate}>
               <View style={styles.callRateBox}>
-                <CallRateIcon />
+                <CallRateIcon size={px(14.3)} />
               </View>
               <View>
                 <Text style={styles.rateWas}>{profile.rates.call.was}</Text>
@@ -296,7 +266,7 @@ export function AstrologerDetailScreen({
               }}
               style={({ pressed }) => [styles.follow, pressed && styles.pressed]}
             >
-              <FollowIcon />
+              <FollowIcon size={px(20.8333)} />
               <Text style={styles.followLabel}>
                 {following ? 'Following' : 'Follow'}
               </Text>
@@ -346,93 +316,6 @@ export function AstrologerDetailScreen({
               {aboutExpanded ? 'Read Less' : 'Read More'}
             </Text>
           </View>
-
-          <View style={styles.reviewHeader}>
-            <Text style={styles.reviewTitle}>Rating and Review</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Filter reviews"
-              onPress={onFilterReviews}
-              style={({ pressed }) => [
-                styles.reviewFilter,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.reviewFilterLabel}>All</Text>
-              <View style={styles.caret}>
-                <CaretDownIcon />
-              </View>
-            </Pressable>
-          </View>
-
-          <View style={styles.summary}>
-            <View style={styles.score}>
-              <Text style={styles.scoreValue}>
-                {profile.score.value}
-                <Text style={styles.scoreOutOf}> {profile.score.outOf}</Text>
-              </Text>
-              <StarRowIcon size={59} />
-            </View>
-
-            <View style={styles.histogram}>
-              {profile.histogram.map(row => (
-                <View key={row.rating} style={styles.histogramRow}>
-                  <Text style={styles.histogramRating}>{row.rating}</Text>
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        {
-                          width: `${row.ratio * 100}%`,
-                          backgroundColor: row.color,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.histogramCount}>{row.count}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {profile.reviews.map(review => (
-            <View key={review.id} style={styles.review}>
-              <View style={styles.reviewTop}>
-                {review.avatar === undefined ? (
-                  <View style={styles.reviewAvatarPlaceholder}>
-                    <AnonymousIcon />
-                  </View>
-                ) : (
-                  <Image
-                    source={review.avatar}
-                    style={styles.reviewAvatar}
-                    resizeMode="cover"
-                  />
-                )}
-
-                <View style={styles.reviewCopy}>
-                  <Text style={styles.reviewAuthor}>{review.author}</Text>
-                  <StarRowIcon size={59} />
-                </View>
-
-                <Text style={styles.reviewDate}>{review.date}</Text>
-              </View>
-
-              <Text style={styles.reviewBody}>{review.body}</Text>
-
-              {review.reply !== undefined && (
-                <View style={styles.reply}>
-                  <View style={styles.replyAccent} />
-                  <View style={styles.replyBody}>
-                    <Text style={styles.replyAuthor}>
-                      {review.reply.author}
-                    </Text>
-                    <Text style={styles.replyText}>{review.reply.body}</Text>
-                  </View>
-                </View>
-              )}
-            </View>
-          ))}
         </View>
       </ScrollView>
 
@@ -447,7 +330,7 @@ export function AstrologerDetailScreen({
           ]}
         >
           <BrandGradient radius={radius.button} />
-          <ChatNowIcon />
+          <ChatNowIcon size={px(26.178)} />
           <Text style={styles.ctaLabel}>Chat Now</Text>
         </Pressable>
 
@@ -461,7 +344,7 @@ export function AstrologerDetailScreen({
           ]}
         >
           <BrandGradient radius={radius.button} />
-          <CallNowIcon />
+          <CallNowIcon size={px(26)} />
           <Text style={styles.ctaLabel}>Call Now</Text>
         </Pressable>
       </View>
@@ -469,465 +352,322 @@ export function AstrologerDetailScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: palette.page,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.brandYellow,
-    paddingHorizontal: spacing.section,
-    paddingBottom: spacing.md,
-  },
-  back: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  walletPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 35.66,
-    borderRadius: radius.chip - 2,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 10,
-  },
-  walletLabel: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    letterSpacing: -0.25,
-    color: colors.text.ink,
-  },
-  kebab: {
-    width: 24,
-    alignItems: 'center',
-  },
-  waitTime: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: colors.text.onYellow,
-    backgroundColor: colors.brandYellow,
-    paddingLeft: 44,
-    paddingBottom: spacing.rowGap,
-  },
+/**
+ * This frame draws its own visual language (own greys, pill radii, inline
+ * type) rather than the shared theme, so `px` scales its literal sizes and
+ * font metrics directly. On a tablet the card column and CTA bar are capped
+ * and centred (`contentWidth`/`isTablet`) instead of stretching edge to edge.
+ */
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: palette.page,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      backgroundColor: colors.brandYellow,
+      paddingHorizontal: spacing.section,
+      paddingBottom: spacing.md,
+    },
+    back: {
+      flex: 1,
+      alignItems: 'flex-start',
+    },
+    pressed: {
+      opacity: 0.7,
+    },
+    walletPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      height: px(35.66),
+      borderRadius: radius.chip - 2,
+      backgroundColor: colors.surface,
+      paddingHorizontal: px(10),
+    },
+    walletLabel: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(12),
+      letterSpacing: -0.25,
+      color: colors.text.ink,
+    },
+    kebab: {
+      width: px(24),
+      alignItems: 'center',
+    },
+    waitTime: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      color: colors.text.onYellow,
+      backgroundColor: colors.brandYellow,
+      paddingLeft: px(44),
+      paddingBottom: spacing.rowGap,
+    },
 
-  body: {
-    paddingHorizontal: spacing.section,
-    marginTop: -spacing.xxl,
-    gap: spacing.section,
-  },
-  profileCard: {
-    borderRadius: radius.card,
-    backgroundColor: colors.surface,
-    padding: spacing.section,
-    // 0 8px 24px rgba(0, 0, 0, 0.06)
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.06,
-        shadowRadius: 24,
-      },
-      android: { elevation: 4 },
-      default: {},
-    }),
-  },
-  identity: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  portrait: {
-    width: PORTRAIT,
-    height: PORTRAIT,
-    borderRadius: PORTRAIT / 2,
-    borderWidth: 1,
-    borderColor: palette.star,
-  },
-  identityCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  name: {
-    fontFamily: fontFamily.semiBold,
-    fontSize: 14,
-    color: palette.ink,
-  },
-  onlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success.accent,
-  },
-  tags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-  },
-  tag: {
-    height: 16,
-    borderRadius: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 7,
-  },
-  tagLabel: {
-    fontFamily: fontFamily.medium,
-    fontSize: 8,
-    color: palette.ink,
-  },
-  languageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  languages: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.ink,
-  },
+    body: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: spacing.section,
+      marginTop: -spacing.xxl,
+      gap: spacing.section,
+    },
+    profileCard: {
+      borderRadius: radius.card,
+      backgroundColor: colors.surface,
+      padding: spacing.section,
+      // 0 8px 24px rgba(0, 0, 0, 0.06)
+      ...Platform.select({
+        ios: {
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.06,
+          shadowRadius: 24,
+        },
+        android: { elevation: 4 },
+        default: {},
+      }),
+    },
+    identity: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.md,
+    },
+    portrait: {
+      width: px(PORTRAIT),
+      height: px(PORTRAIT),
+      borderRadius: px(PORTRAIT) / 2,
+      borderWidth: 1,
+      borderColor: palette.star,
+    },
+    identityCopy: {
+      flex: 1,
+      gap: 6,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    name: {
+      fontFamily: fontFamily.semiBold,
+      fontSize: px(14),
+      color: palette.ink,
+    },
+    onlineDot: {
+      width: px(8),
+      height: px(8),
+      borderRadius: px(4),
+      backgroundColor: colors.success.accent,
+    },
+    tags: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 5,
+    },
+    tag: {
+      height: px(16),
+      borderRadius: 44,
+      justifyContent: 'center',
+      paddingHorizontal: px(7),
+    },
+    tagLabel: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(8),
+      color: palette.ink,
+    },
+    languageRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+    },
+    languages: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      color: palette.ink,
+    },
 
-  stats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: spacing.section,
-  },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
-  },
-  statDivider: {
-    width: hairline,
-    height: 30,
-    backgroundColor: colors.border.subtle,
-  },
-  statValue: {
-    fontFamily: fontFamily.medium,
-    fontSize: 10,
-    color: palette.ink,
-  },
-  statLabel: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.inkStrong,
-  },
+    stats: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingTop: spacing.section,
+    },
+    stat: {
+      flex: 1,
+      alignItems: 'center',
+      gap: 2,
+    },
+    statDivider: {
+      width: hairline,
+      height: px(30),
+      backgroundColor: colors.border.subtle,
+    },
+    statValue: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(10),
+      color: palette.ink,
+    },
+    statLabel: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      color: palette.inkStrong,
+    },
 
-  rateCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 55.613,
-    borderRadius: radius.badge,
-    borderWidth: 1,
-    borderColor: palette.cardBorder,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.section,
-    // 0 2px 4px rgba(210, 210, 210, 0.87)
-    ...Platform.select({
-      ios: {
-        shadowColor: palette.cardShadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 1,
-        shadowRadius: 4,
-      },
-      android: { elevation: 2 },
-      default: {},
-    }),
-  },
-  rate: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  callRateBox: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.bubbleTail,
-    borderWidth: 1,
-    borderColor: '#407FEE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rateWas: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.muted,
-    textDecorationLine: 'line-through',
-  },
-  rateNow: {
-    fontFamily: fontFamily.medium,
-    fontSize: 13,
-    color: palette.ink,
-  },
-  rateDivider: {
-    width: hairline,
-    height: 18.399,
-    backgroundColor: colors.border.subtle,
-    marginHorizontal: spacing.sm,
-  },
-  follow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: radius.tag,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  followLabel: {
-    fontFamily: fontFamily.regular,
-    fontSize: 14,
-    color: palette.ink,
-  },
+    rateCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: px(55.613),
+      borderRadius: radius.badge,
+      borderWidth: 1,
+      borderColor: palette.cardBorder,
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.section,
+      // 0 2px 4px rgba(210, 210, 210, 0.87)
+      ...Platform.select({
+        ios: {
+          shadowColor: palette.cardShadow,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 1,
+          shadowRadius: 4,
+        },
+        android: { elevation: 2 },
+        default: {},
+      }),
+    },
+    rate: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    callRateBox: {
+      width: px(26),
+      height: px(26),
+      borderRadius: radius.bubbleTail,
+      borderWidth: 1,
+      borderColor: '#407FEE',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    rateWas: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      color: palette.muted,
+      textDecorationLine: 'line-through',
+    },
+    rateNow: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(13),
+      color: palette.ink,
+    },
+    rateDivider: {
+      width: hairline,
+      height: px(18.399),
+      backgroundColor: colors.border.subtle,
+      marginHorizontal: spacing.sm,
+    },
+    follow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderRadius: radius.tag,
+      paddingHorizontal: px(10),
+      paddingVertical: px(5),
+    },
+    followLabel: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(14),
+      color: palette.ink,
+    },
 
-  sectionTitle: {
-    fontFamily: fontFamily.medium,
-    fontSize: 16,
-    color: palette.ink,
-  },
-  media: {
-    gap: spacing.sm,
-  },
-  mediaTile: {
-    width: MEDIA_TILE,
-    height: MEDIA_TILE,
-    borderRadius: radius.badge,
-  },
+    sectionTitle: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(16),
+      color: palette.ink,
+    },
+    media: {
+      gap: spacing.sm,
+    },
+    mediaTile: {
+      width: px(MEDIA_TILE),
+      height: px(MEDIA_TILE),
+      borderRadius: radius.badge,
+    },
 
-  specializations: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  specTag: {
-    borderRadius: 50,
-    backgroundColor: colors.surface,
-    padding: 5,
-  },
-  specLabel: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.inkTag,
-  },
+    specializations: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    specTag: {
+      borderRadius: 50,
+      backgroundColor: colors.surface,
+      padding: px(5),
+    },
+    specLabel: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      color: palette.inkTag,
+    },
 
-  aboutCard: {
-    borderRadius: radius.badge,
-    borderWidth: 1,
-    borderColor: palette.aboutBorder,
-    backgroundColor: palette.aboutFill,
-    padding: spacing.md,
-    gap: 6,
-  },
-  aboutTitle: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14,
-    color: palette.ink,
-  },
-  aboutBody: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    lineHeight: 17,
-    color: palette.ink,
-  },
-  readMore: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    lineHeight: 17,
-    color: palette.link,
-  },
+    aboutCard: {
+      borderRadius: radius.badge,
+      borderWidth: 1,
+      borderColor: palette.aboutBorder,
+      backgroundColor: palette.aboutFill,
+      padding: spacing.md,
+      gap: 6,
+    },
+    aboutTitle: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(14),
+      color: palette.ink,
+    },
+    aboutBody: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      lineHeight: px(17),
+      color: palette.ink,
+    },
+    readMore: {
+      fontFamily: fontFamily.regular,
+      fontSize: px(10),
+      lineHeight: px(17),
+      color: palette.link,
+    },
 
-  reviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  reviewTitle: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14,
-    color: palette.ink,
-  },
-  reviewFilter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 29.639,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: palette.filterBorder,
-    backgroundColor: palette.aboutFill,
-    paddingHorizontal: 11.85,
-  },
-  reviewFilterLabel: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    color: palette.ink,
-  },
-  caret: {
-    transform: [{ rotate: '90deg' }],
-  },
-
-  summary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  score: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  scoreValue: {
-    fontFamily: fontFamily.semiBold,
-    fontSize: 30,
-    color: palette.inkScore,
-  },
-  scoreOutOf: {
-    fontSize: 18,
-  },
-  histogram: {
-    flex: 1,
-    gap: 4,
-  },
-  histogramRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  histogramRating: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12,
-    color: palette.muted,
-    width: 10,
-  },
-  barTrack: {
-    flex: 1,
-    maxWidth: BAR_TRACK,
-    height: BAR_HEIGHT,
-    borderRadius: BAR_HEIGHT / 2,
-    backgroundColor: palette.barTrack,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: BAR_HEIGHT,
-    borderRadius: BAR_HEIGHT / 2,
-  },
-  histogramCount: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12,
-    color: palette.muted,
-    width: 30,
-    textAlign: 'right',
-  },
-
-  review: {
-    borderTopWidth: hairline,
-    borderTopColor: colors.border.subtle,
-    paddingTop: spacing.md,
-    gap: 6,
-  },
-  reviewTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  reviewAvatar: {
-    width: REVIEW_AVATAR,
-    height: REVIEW_AVATAR,
-    borderRadius: REVIEW_AVATAR / 2,
-  },
-  reviewAvatarPlaceholder: {
-    width: REVIEW_AVATAR,
-    height: REVIEW_AVATAR,
-    borderRadius: REVIEW_AVATAR / 2,
-    backgroundColor: colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reviewCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  reviewAuthor: {
-    fontFamily: fontFamily.medium,
-    fontSize: 10,
-    color: palette.inkTag,
-  },
-  reviewDate: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.ink,
-    opacity: 0.6,
-  },
-  reviewBody: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.ink,
-    opacity: 0.6,
-  },
-  reply: {
-    flexDirection: 'row',
-    height: 34,
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginLeft: REVIEW_AVATAR + spacing.sm,
-  },
-  replyAccent: {
-    width: 2,
-    backgroundColor: palette.replyAccent,
-  },
-  replyBody: {
-    flex: 1,
-    justifyContent: 'center',
-    backgroundColor: palette.replyFill,
-    paddingHorizontal: spacing.sm,
-  },
-  replyAuthor: {
-    fontFamily: fontFamily.medium,
-    fontSize: 10,
-    color: palette.inkTag,
-  },
-  replyText: {
-    // Figma sets this in Poppins Light; only four weights are bundled, so the
-    // nearest available (Regular) is used.
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
-    color: palette.ink,
-  },
-
-  ctaBar: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    backgroundColor: palette.page,
-    paddingHorizontal: spacing.section,
-    paddingTop: spacing.md,
-  },
-  cta: {
-    height: CTA_HEIGHT,
-    borderRadius: radius.button,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    overflow: 'hidden',
-  },
-  ctaChat: {
-    flex: 167,
-  },
-  ctaCall: {
-    flex: 178,
-  },
-  ctaLabel: {
-    fontFamily: fontFamily.medium,
-    fontSize: 16,
-    color: colors.text.inverse,
-  },
-});
+    ctaBar: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      flexDirection: 'row',
+      gap: spacing.md,
+      backgroundColor: palette.page,
+      paddingHorizontal: spacing.section,
+      paddingTop: spacing.md,
+    },
+    cta: {
+      height: px(CTA_HEIGHT),
+      borderRadius: radius.button,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      overflow: 'hidden',
+    },
+    ctaChat: {
+      flex: 167,
+    },
+    ctaCall: {
+      flex: 178,
+    },
+    ctaLabel: {
+      fontFamily: fontFamily.medium,
+      fontSize: px(16),
+      color: colors.text.inverse,
+    },
+  });
+}

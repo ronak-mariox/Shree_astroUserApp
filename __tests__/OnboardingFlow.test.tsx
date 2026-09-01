@@ -382,8 +382,20 @@ test('birth details rejects impossible dates and times', async () => {
   expect(onSave).not.toHaveBeenCalled();
   expect(textOf(tree)).toContain('Date of birth is required');
 
+  // Date of Birth opens a wheel rather than taking typed text.
+  const dateWheel = () =>
+    tree.root.findAllByType(WheelPickerDialog).filter(w => w.props.visible)[0];
+  const pickDate = async (day: string, month: string, year: string) => {
+    await ReactTestRenderer.act(() => {
+      findPressable(tree, 'Date of Birth').props.onPress();
+    });
+    await ReactTestRenderer.act(() => {
+      dateWheel().props.onSubmit({ day, month, year });
+    });
+  };
+
+  await pickDate('31', 'Feb', '1999');
   await ReactTestRenderer.act(() => {
-    fieldNamed(tree, 'Date of Birth').props.onChangeText('31/02/1999');
     fieldNamed(tree, 'Time of Birth').props.onChangeText('25:00');
     fieldNamed(tree, 'Place of Birth').props.onChangeText('M');
   });
@@ -392,13 +404,13 @@ test('birth details rejects impossible dates and times', async () => {
   expect(text).toContain('Hour must be between 00 and 23');
   expect(text).toContain('Place of birth must be at least 2 characters');
 
-  await ReactTestRenderer.act(() => {
-    fieldNamed(tree, 'Date of Birth').props.onChangeText('15/08/2099');
-  });
+  // The wheel's years run only to 2026, so the last day of that year stands
+  // in for "unambiguously future" — it is always after whenever this runs.
+  await pickDate('31', 'Dec', '2026');
   expect(textOf(tree)).toContain('Date of birth cannot be in the future');
 
+  await pickDate('15', 'Aug', '1999');
   await ReactTestRenderer.act(() => {
-    fieldNamed(tree, 'Date of Birth').props.onChangeText('15/08/1999');
     fieldNamed(tree, 'Time of Birth').props.onChangeText('06:30 AM');
     fieldNamed(tree, 'Place of Birth').props.onChangeText('Mumbai, Maharashtra');
   });
@@ -743,6 +755,41 @@ test('the consultation room opens on the intake and sends a reply', async () => 
 
   await ReactTestRenderer.act(() => {
     findPressable(tree, 'End the consultation').props.onPress();
+  });
+  expect(textOf(tree)).toContain('End Chat ?');
+  expect(onEnd).not.toHaveBeenCalled();
+
+  // "No, Stay Here" just closes the confirm sheet — the session keeps going.
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'No, Stay Here').props.onPress();
+  });
+  expect(textOf(tree)).not.toContain('End Chat ?');
+  expect(onEnd).not.toHaveBeenCalled();
+
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'End the consultation').props.onPress();
+  });
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Yes, End Chat').props.onPress();
+  });
+  expect(textOf(tree)).toContain('More Guidance Awaits You');
+  expect(onEnd).not.toHaveBeenCalled();
+
+  // "Yes, Start Chat" backs out of ending — the session is still live.
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Yes, Start Chat').props.onPress();
+  });
+  expect(textOf(tree)).not.toContain('More Guidance Awaits You');
+  expect(onEnd).not.toHaveBeenCalled();
+
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'End the consultation').props.onPress();
+  });
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Yes, End Chat').props.onPress();
+  });
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'No').props.onPress();
   });
   expect(onEnd).toHaveBeenCalled();
   jest.useRealTimers();
@@ -1214,12 +1261,6 @@ test('astrologer detail renders every section', async () => {
   expect(text).toContain('Career & Job');
   expect(text).toContain('About Us');
   expect(text).toContain('Read More');
-  expect(text).toContain('Rating and Review');
-  expect(text).toContain('4.7');
-  /** The histogram counts come from the real breakdown. */
-  expect(text).toContain('90');
-  expect(text).toContain('Anonymous');
-  expect(text).toContain('Thank you');
   expect(text).toContain('Chat Now');
   expect(text).toContain('Call Now');
 });
@@ -1278,8 +1319,6 @@ test('the detail screen prints the astrologer it was handed', async () => {
   expect(text).toContain('Tarot');
   expect(text).toContain('12 Years');
   expect(text).toContain('₹15/min');
-  // The sections no listing carries still come from the pinned profile.
-  expect(text).toContain('Rating and Review');
   expect(text).toContain('Chat Now');
 });
 
@@ -1317,7 +1356,6 @@ test('available astrologers renders and filters by category', async () => {
   expect(text).toContain('Numerology');
   expect(text).toContain('18 Yrs');
   expect(text).toContain('4,820');
-  expect(text).toContain('4.7');
   expect(text).toContain('Free');
   expect(text).toContain('₹20/min');
   expect(text).toContain('Free');
@@ -1422,7 +1460,6 @@ test('the filter sheet opens with Figma\'s expertise ticks', async () => {
     'Language',
     'Experience',
     'Sort By Price',
-    'Sort By Ratings',
     'Gender',
     'Status',
     'Top Astrologers',

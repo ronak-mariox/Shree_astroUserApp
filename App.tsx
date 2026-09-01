@@ -490,14 +490,6 @@ function App() {
               '⋯',
             )
           }
-          onFilterReviews={() =>
-            comeBackLater(
-              'astrologerDetail',
-              'Review Filters',
-              'Sorting reviews by rating is on its way. Every review is listed below meanwhile.',
-              '⭐',
-            )
-          }
         />
       )}
 

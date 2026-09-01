@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -23,6 +24,7 @@ import {
   WalletCardIcon,
   type MenuIconProps,
 } from '../components/icons/MenuIcons';
+import { ZODIAC_ICONS } from '../components/icons/ZodiacIcons';
 import {
   account,
   accountStats,
@@ -85,6 +87,7 @@ export function ProfileScreen({
   /** Only the identity line is the user's; the rest is still placeholder copy. */
   const name = user?.name || account.name;
   const email = user?.email || account.email;
+  const ZodiacGlyph = ZODIAC_ICONS[account.sunSign];
 
   return (
     <View style={styles.screen}>
@@ -101,12 +104,19 @@ export function ProfileScreen({
           ]}
         >
           <View style={styles.avatar}>
-            <Text style={styles.avatarGlyph}>{account.avatarGlyph}</Text>
+            <Image
+              source={user?.avatarUrl ? { uri: user.avatarUrl } : account.avatarPhoto}
+              style={styles.avatarImage}
+              resizeMode="cover"
+            />
           </View>
 
           <Text style={styles.name}>{name}</Text>
           <Text style={styles.email}>{email}</Text>
-          <Text style={styles.identity}>{account.identity}</Text>
+          <View style={styles.identityRow}>
+            {ZodiacGlyph && <ZodiacGlyph size={13} />}
+            <Text style={styles.identity}>{account.identityLine}</Text>
+          </View>
 
           <View style={styles.stats}>
             {accountStats.map(stat => (
@@ -194,6 +204,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
+    overflow: 'hidden',
     // drop-shadow(0 8px 12px rgba(255, 140, 0, 0.4))
     ...Platform.select({
       ios: {
@@ -206,10 +217,9 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
-  avatarGlyph: {
-    fontSize: 44,
-    lineHeight: 66,
-    color: colors.text.onYellow,
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   name: {
     ...typography.pageTitle,
@@ -222,11 +232,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingTop: 3,
   },
+  identityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingTop: spacing.xs,
+  },
   identity: {
     ...typography.caption,
     color: colors.text.onYellow,
     textAlign: 'center',
-    paddingTop: spacing.xs,
   },
   stats: {
     flexDirection: 'row',

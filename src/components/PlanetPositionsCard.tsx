@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { colors, hairline, radius, spacing, typography } from '../theme';
 import { BrandGradient } from './BrandGradient';
+import { PLANET_ICONS } from './icons/PlanetIcons';
 
 const CHIP_HEIGHT = 93;
 
@@ -43,13 +44,18 @@ export function PlanetPositionsCard({ positions }: PlanetPositionsCardProps) {
         contentContainerStyle={styles.chips}
         style={styles.chipScroller}
       >
-        {planetPositions.planets.map(planet => (
-          <View key={planet.name} style={styles.chip}>
-            <Text style={styles.glyph}>{planet.glyph}</Text>
-            <Text style={styles.name}>{planet.name}</Text>
-            <Text style={styles.sign}>{planet.sign}</Text>
-          </View>
-        ))}
+        {planetPositions.planets.map(planet => {
+          const Icon = PLANET_ICONS[planet.name];
+          return (
+            <View key={planet.name} style={styles.chip}>
+              <View style={styles.glyph}>
+                {Icon ? <Icon /> : <Text style={styles.glyphFallback}>{planet.glyph}</Text>}
+              </View>
+              <Text style={styles.name}>{planet.name}</Text>
+              <Text style={styles.sign}>{planet.sign}</Text>
+            </View>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -75,6 +81,9 @@ const styles = StyleSheet.create({
     color: colors.text.onGradientSoft,
   },
   chipScroller: {
+    /** A horizontal ScrollView doesn't reliably inherit its children's height
+        (worse under Fabric) — pinned explicitly so the chips get room. */
+    height: CHIP_HEIGHT,
     marginTop: spacing.rowGap,
   },
   chips: {
@@ -92,6 +101,11 @@ const styles = StyleSheet.create({
     minWidth: 58.394,
   },
   glyph: {
+    height: typography.symbol.lineHeight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyphFallback: {
     ...typography.symbol,
     color: colors.text.inverse,
     textAlign: 'center',

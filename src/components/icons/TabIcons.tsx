@@ -47,7 +47,7 @@ export function HomeTabIcon({ active = false, size = SIZE }: TabIconProps) {
   );
 }
 
-/** Solid black chakra with white spokes when selected (node 180:89289). */
+/** Solid green chakra with white spokes when selected (node 180:89289). */
 export function KundliTabIcon({ active = false, size = SIZE }: TabIconProps) {
   const wheel =
     'M10.9966 19.2441C15.5516 19.2441 19.2441 15.5516 19.2441 10.9966C19.2441 6.44169 15.5516 2.74916 10.9966 2.74916C6.44169 2.74916 2.74916 6.44169 2.74916 10.9966C2.74916 15.5516 6.44169 19.2441 10.9966 19.2441Z';
@@ -59,8 +59,8 @@ export function KundliTabIcon({ active = false, size = SIZE }: TabIconProps) {
       <G>
         <Path
           d={wheel}
-          fill={active ? colors.border.strong : 'none'}
-          stroke={active ? colors.border.strong : colors.text.muted}
+          fill={active ? colors.success.accent : 'none'}
+          stroke={active ? colors.success.accent : colors.text.muted}
           strokeWidth={STROKE}
           strokeLinecap="round"
         />
@@ -96,7 +96,7 @@ export function ConsultTabIcon({ active = false, size = SIZE }: TabIconProps) {
 
 /** Outline-only card with a chip (node 180:89211). */
 export function WalletTabIcon({ active = false, size = SIZE }: TabIconProps) {
-  const tint = active ? colors.border.strong : colors.text.muted;
+  const tint = active ? colors.success.accent : colors.text.muted;
 
   return (
     <Svg width={size} height={size} viewBox={VIEW_BOX} fill="none">

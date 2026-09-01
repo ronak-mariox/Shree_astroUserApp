@@ -15,8 +15,9 @@ const FIELD_HEIGHT = 49.992;
 
 type FormFieldProps = TextInputProps & {
   label: string;
-  /** Emoji shown before the label, as the birth-details fields do. */
-  labelIcon?: string;
+  /** Shown before the label, as the birth-details fields do — an icon element,
+      or (legacy) a plain emoji string. */
+  labelIcon?: React.ReactNode;
   /** Helper line under the field. */
   hint?: string;
   /** What is wrong with the value — replaces the hint and reddens the outline. */
@@ -40,8 +41,10 @@ export function FormField({
   return (
     <View style={containerStyle}>
       <View style={styles.labelRow}>
-        {labelIcon !== undefined && (
+        {typeof labelIcon === 'string' ? (
           <Text style={styles.label}>{labelIcon}</Text>
+        ) : (
+          labelIcon
         )}
         <Text style={styles.label}>{label}</Text>
       </View>

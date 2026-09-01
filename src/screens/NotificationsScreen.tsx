@@ -10,6 +10,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '../components/BackButton';
+import {
+  ConsultationCompletedIcon,
+  ConsultationReminderIcon,
+  FullMoonAlertIcon,
+  HoroscopeReadyIcon,
+} from '../components/icons/NotificationIcons';
+import { TotalAddedIcon } from '../components/icons/WalletIcons';
 import { notifications, type NotificationTint } from '../data/profile';
 import {
   colors,
@@ -29,6 +36,20 @@ const TINTS: Record<NotificationTint, string> = {
   warm: colors.status.infoTint,
   lilac: colors.status.lilacTint,
   mint: colors.status.positiveBadge,
+};
+
+/**
+ * Vector glyph per notification, keyed by id — "Mercury goes Direct" has no
+ * vector in the source design (it's plain "☿" text there too), so it falls
+ * back to `item.glyph`. "Wallet Credited" reuses the Wallet screen's own
+ * icon: Figma exports the identical asset for both.
+ */
+const NOTIFICATION_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+  'n-2': ConsultationReminderIcon,
+  'n-3': props => <TotalAddedIcon {...props} color="#388753" />,
+  'n-4': HoroscopeReadyIcon,
+  'n-5': ConsultationCompletedIcon,
+  'n-6': FullMoonAlertIcon,
 };
 
 type NotificationsScreenProps = {
@@ -89,6 +110,7 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
       >
         {notifications.map(item => {
           const unread = isUnread(item.id, item.unread);
+          const Icon = NOTIFICATION_ICONS[item.id];
 
           return (
             <View
@@ -96,7 +118,11 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
               style={[styles.card, unread ? styles.cardUnread : styles.cardRead]}
             >
               <View style={[styles.tile, { backgroundColor: TINTS[item.tint] }]}>
-                <Text style={styles.tileGlyph}>{item.glyph}</Text>
+                {Icon ? (
+                  <Icon size={24} />
+                ) : (
+                  <Text style={styles.tileGlyph}>{item.glyph}</Text>
+                )}
               </View>
 
               <View style={styles.copy}>

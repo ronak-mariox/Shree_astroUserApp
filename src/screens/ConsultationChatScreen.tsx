@@ -15,14 +15,16 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from '../components/BrandGradient';
+import { EndChatDialog } from '../components/AstrologerBusyDialog';
+import { ChatEndedDialog } from '../components/ChatEndedDialog';
 import {
   ConsultationBubble,
   type ConsultationMessage,
 } from '../components/ConsultationBubble';
 import {
   EmojiIcon,
-  MicIcon,
-  PaperclipIcon,
+  // MicIcon,
+  // PaperclipIcon,
   WalletPillIcon,
 } from '../components/icons/ChatRoomIcons';
 import { CloseMarkIcon } from '../components/icons/CloseMarkIcon';
@@ -96,6 +98,8 @@ export function ConsultationChatScreen({
   );
   const [draft, setDraft] = useState('');
   const [elapsed, setElapsed] = useState(0);
+  const [endChatVisible, setEndChatVisible] = useState(false);
+  const [chatEndedVisible, setChatEndedVisible] = useState(false);
 
   // The session is charged by the minute, so the header counts it up.
   useEffect(() => {
@@ -168,12 +172,32 @@ export function ConsultationChatScreen({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="End the consultation"
-          onPress={onEnd}
+          onPress={() => setEndChatVisible(true)}
           style={({ pressed }) => [styles.end, pressed && styles.pressed]}
         >
           <CloseMarkIcon size={END_ICON} color={colors.text.inverse} />
         </Pressable>
       </View>
+
+      <EndChatDialog
+        visible={endChatVisible}
+        onDismiss={() => setEndChatVisible(false)}
+        onStay={() => setEndChatVisible(false)}
+        onEndChat={() => {
+          setEndChatVisible(false);
+          setChatEndedVisible(true);
+        }}
+      />
+
+      <ChatEndedDialog
+        visible={chatEndedVisible}
+        onDismiss={() => setChatEndedVisible(false)}
+        onResume={() => setChatEndedVisible(false)}
+        onEnd={() => {
+          setChatEndedVisible(false);
+          onEnd?.();
+        }}
+      />
 
       <KeyboardAvoidingView
         style={styles.body}
@@ -205,7 +229,7 @@ export function ConsultationChatScreen({
               style={styles.input}
               multiline
             />
-            <Pressable
+            {/* <Pressable
               accessibilityRole="button"
               accessibilityLabel="Record a voice note"
               style={({ pressed }) => pressed && styles.pressed}
@@ -218,7 +242,7 @@ export function ConsultationChatScreen({
               style={({ pressed }) => pressed && styles.pressed}
             >
               <PaperclipIcon />
-            </Pressable>
+            </Pressable> */}
           </View>
 
           <Pressable

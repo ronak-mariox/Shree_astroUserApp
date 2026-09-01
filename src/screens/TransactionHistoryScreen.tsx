@@ -12,6 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { FilterChips } from '../components/FilterChips';
 import {
+  WalletCreditTileIcon,
+  WalletDebitTileIcon,
+} from '../components/icons/WalletIcons';
+import {
   ledger,
   ledgerFilters,
   type LedgerFilter,
@@ -83,16 +87,11 @@ export function TransactionHistoryScreen({
       >
         {entries.map(entry => (
           <View key={entry.id} style={styles.entry}>
-            <View
-              style={[
-                styles.tile,
-                entry.credit ? styles.tileCredit : styles.tileDebit,
-              ]}
-            >
-              <Text style={styles.tileGlyph}>
-                {entry.credit ? '⬆️' : '⬇️'}
-              </Text>
-            </View>
+            {entry.credit ? (
+              <WalletCreditTileIcon size={TILE_SIZE} />
+            ) : (
+              <WalletDebitTileIcon size={TILE_SIZE} />
+            )}
 
             <View style={styles.copy}>
               <Text style={styles.entryTitle}>{entry.title}</Text>
@@ -170,23 +169,6 @@ const styles = StyleSheet.create({
       android: { elevation: 1 },
       default: {},
     }),
-  },
-  tile: {
-    width: TILE_SIZE,
-    height: TILE_SIZE,
-    borderRadius: radius.field,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tileCredit: {
-    backgroundColor: colors.status.positiveBadge,
-  },
-  tileDebit: {
-    backgroundColor: colors.status.debitTint,
-  },
-  tileGlyph: {
-    ...typography.symbol,
-    color: colors.text.onYellow,
   },
   copy: {
     flex: 1,

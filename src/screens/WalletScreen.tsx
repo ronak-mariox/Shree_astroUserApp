@@ -14,6 +14,12 @@ import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
 import { SectionHeader } from '../components/SectionHeader';
 import {
+  TotalAddedIcon,
+  TotalSpentIcon,
+  WalletCreditTileIcon,
+  WalletDebitTileIcon,
+} from '../components/icons/WalletIcons';
+import {
   quickAddAmounts,
   transactions,
   wallet,
@@ -45,16 +51,11 @@ type WalletScreenProps = {
 function TransactionRow({ transaction }: { transaction: Transaction }) {
   return (
     <View style={styles.transaction}>
-      <View
-        style={[
-          styles.transactionTile,
-          transaction.credit ? styles.tileCredit : styles.tileDebit,
-        ]}
-      >
-        <Text style={styles.transactionGlyph}>
-          {transaction.credit ? '⬆️' : '⬇️'}
-        </Text>
-      </View>
+      {transaction.credit ? (
+        <WalletCreditTileIcon size={TILE_SIZE} />
+      ) : (
+        <WalletDebitTileIcon size={TILE_SIZE} />
+      )}
 
       <View style={styles.transactionCopy}>
         <Text style={styles.transactionTitle}>{transaction.title}</Text>
@@ -151,7 +152,7 @@ export function WalletScreen({
 
           <View style={styles.stats}>
             <View style={[styles.statTile, styles.statSpent]}>
-              <Text style={styles.statGlyph}>💸</Text>
+              <TotalSpentIcon size={20} />
               <Text style={[styles.statValue, styles.statValueSpent]}>
                 {wallet.totalSpent}
               </Text>
@@ -159,7 +160,7 @@ export function WalletScreen({
             </View>
 
             <View style={[styles.statTile, styles.statAdded]}>
-              <Text style={styles.statGlyph}>💰</Text>
+              <TotalAddedIcon size={24} />
               <Text style={[styles.statValue, styles.statValueAdded]}>
                 {wallet.totalAdded}
               </Text>
@@ -320,10 +321,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.status.positiveBadge,
     borderColor: colors.status.creditTintBorder,
   },
-  statGlyph: {
-    ...typography.symbolEmoji,
-    color: colors.text.onYellow,
-  },
   statValue: {
     ...typography.statValue,
     paddingTop: 6,
@@ -362,23 +359,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border.subtle,
     backgroundColor: colors.surface,
     padding: 14.755,
-  },
-  transactionTile: {
-    width: TILE_SIZE,
-    height: TILE_SIZE,
-    borderRadius: radius.field,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tileCredit: {
-    backgroundColor: colors.status.positiveBadge,
-  },
-  tileDebit: {
-    backgroundColor: colors.status.debitTint,
-  },
-  transactionGlyph: {
-    ...typography.symbol,
-    color: colors.text.onYellow,
   },
   transactionCopy: {
     flex: 1,

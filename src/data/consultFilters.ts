@@ -20,7 +20,6 @@ export type ConsultFilterSectionKey =
   | 'language'
   | 'experience'
   | 'price'
-  | 'ratings'
   | 'gender'
   | 'status'
   | 'top';
@@ -100,15 +99,6 @@ export const consultFilterSections: ReadonlyArray<ConsultFilterSection> = [
     ],
   },
   {
-    key: 'ratings',
-    label: 'Sort By Ratings',
-    mode: 'single',
-    options: [
-      { id: 'rating-desc', label: 'High to Low' },
-      { id: 'rating-asc', label: 'Low to High' },
-    ],
-  },
-  {
     key: 'gender',
     label: 'Gender',
     mode: 'multiple',
@@ -146,7 +136,6 @@ export const emptyConsultFilters: ConsultFilterSelection = {
   language: [],
   experience: [],
   price: [],
-  ratings: [],
   gender: [],
   status: [],
   top: [],
@@ -165,17 +154,14 @@ export const defaultConsultFilters: ConsultFilterSelection = {
 };
 
 /**
- * The two sorts the sheet offers.
+ * The sheet's price sort.
  *
  * Narrowing the list is the server's job — every ticked option is an id the API
  * already understands, so it is sent as a query rather than applied here. What
- * is left for the client is the ordering, because the sheet lets a seeker sort
- * by price *and* by rating at once, and the API takes only one.
- *
- * When both are set the rating sort runs last, so it decides ties on price.
+ * is left for the client is the ordering.
  */
 export function sortConsultAstrologers<
-  T extends { was: string; now: string; rating: string },
+  T extends { was: string; now: string },
 >(astrologers: ReadonlyArray<T>, selection: ConsultFilterSelection): T[] {
   const amountOf = (value: string) => Number(value.replace(/[^0-9.]/g, '')) || 0;
   const sorted = [...astrologers];
@@ -184,10 +170,6 @@ export function sortConsultAstrologers<
     sorted.sort((a, b) => amountOf(a.now) - amountOf(b.now));
   } else if (selection.price.includes('high-to-low')) {
     sorted.sort((a, b) => amountOf(b.now) - amountOf(a.now));
-  }
-
-  if (selection.ratings.includes('high-to-low')) {
-    sorted.sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0));
   }
 
   return sorted;

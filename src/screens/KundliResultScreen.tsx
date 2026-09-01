@@ -15,7 +15,9 @@ import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
 import { KundliSection } from '../components/KundliSection';
 import { NorthIndianChart } from '../components/NorthIndianChart';
+import { REMEDY_ICONS } from '../components/icons/RemedyIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
+import { ZODIAC_ICONS } from '../components/icons/ZodiacIcons';
 import {
   dashas,
   keyPositions,
@@ -110,13 +112,22 @@ export function KundliResultScreen({
           <View style={[styles.keyCard, styles.section]}>
             <Text style={styles.keyTitle}>Key Positions</Text>
             <View style={styles.keyGrid}>
-              {keyPositions.map(position => (
-                <View key={position.label} style={styles.keyTile}>
-                  <Text style={styles.keyGlyph}>{position.glyph}</Text>
-                  <Text style={styles.keyLabel}>{position.label}</Text>
-                  <Text style={styles.keySign}>{position.sign}</Text>
-                </View>
-              ))}
+              {keyPositions.map(position => {
+                const Glyph = ZODIAC_ICONS[position.sign];
+                return (
+                  <View key={position.label} style={styles.keyTile}>
+                    {Glyph ? (
+                      <View style={styles.keyGlyphIcon}>
+                        <Glyph size={18} />
+                      </View>
+                    ) : (
+                      <Text style={styles.keyGlyph}>{position.glyph}</Text>
+                    )}
+                    <Text style={styles.keyLabel}>{position.label}</Text>
+                    <Text style={styles.keySign}>{position.sign}</Text>
+                  </View>
+                );
+              })}
             </View>
           </View>
 
@@ -257,18 +268,25 @@ export function KundliResultScreen({
             </Text>
 
             <View style={styles.remedyList}>
-              {remedies.map(remedy => (
-                <View key={remedy.name} style={styles.remedyRow}>
-                  <Text style={styles.remedyGlyph}>{remedy.glyph}</Text>
-                  <View style={styles.remedyCopy}>
-                    <Text style={styles.remedyName}>{remedy.name}</Text>
-                    <Text style={styles.remedyDescription}>
-                      {remedy.description}
-                    </Text>
-                    <Text style={styles.remedySchedule}>{remedy.schedule}</Text>
+              {remedies.map(remedy => {
+                const Glyph = REMEDY_ICONS[remedy.name];
+                return (
+                  <View key={remedy.name} style={styles.remedyRow}>
+                    {Glyph ? (
+                      <Glyph size={28} />
+                    ) : (
+                      <Text style={styles.remedyGlyph}>{remedy.glyph}</Text>
+                    )}
+                    <View style={styles.remedyCopy}>
+                      <Text style={styles.remedyName}>{remedy.name}</Text>
+                      <Text style={styles.remedyDescription}>
+                        {remedy.description}
+                      </Text>
+                      <Text style={styles.remedySchedule}>{remedy.schedule}</Text>
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
 
@@ -384,6 +402,11 @@ const styles = StyleSheet.create({
     ...typography.symbolMedium,
     color: colors.border.strong,
     textAlign: 'center',
+  },
+  keyGlyphIcon: {
+    height: typography.symbolMedium.lineHeight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   keyLabel: {
     ...typography.microLabel,

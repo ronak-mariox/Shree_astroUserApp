@@ -1,11 +1,15 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { colors, hairline, radius, spacing, typography } from '../theme';
 import { BrandGradient } from './BrandGradient';
 
 const AVATAR_SIZE = 31.999;
+const AVATAR_IMAGE_SIZE = 22;
 const BUBBLE_MAX_WIDTH = 250;
+
+/** Same zodiac-emblem crop as the Welcome screen hero (Figma node 518:7854). */
+const ASSISTANT_AVATAR = require('../assets/images/welcome-hero-emblem.png');
 
 export type ChatRole = 'assistant' | 'user';
 
@@ -41,7 +45,7 @@ export function ChatBubble({ message }: ChatBubbleProps) {
             from={colors.gradient.avatarFrom}
             to={colors.gradient.avatarTo}
           />
-          <Text style={styles.avatarGlyph}>🤖</Text>
+          <Image source={ASSISTANT_AVATAR} style={styles.avatarImage} resizeMode="cover" />
         </View>
       )}
 
@@ -78,9 +82,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarGlyph: {
-    ...typography.symbolSmall,
-    color: colors.text.onYellow,
+  avatarImage: {
+    width: AVATAR_IMAGE_SIZE,
+    height: AVATAR_IMAGE_SIZE * (1024 / 1201),
   },
   bubble: {
     maxWidth: BUBBLE_MAX_WIDTH,

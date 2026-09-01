@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -128,6 +129,11 @@ export function ConsultationHistoryScreen({
                     from={colors.status.infoTint}
                     to={colors.gradient.avatarFrom}
                   />
+                  <Image
+                    source={session.photo}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                  />
                 </View>
 
                 <View style={styles.copy}>
@@ -159,7 +165,7 @@ export function ConsultationHistoryScreen({
                       },
                     ]}
                   >
-                    {chat ? '💬 Chat' : '📞 Voice'}
+                    {chat ? 'Chat' : 'Voice'}
                   </Text>
                 </View>
 
@@ -262,7 +268,14 @@ const styles = StyleSheet.create({
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: radius.iconLarge,
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
+  },
+  avatarImage: {
+    width: AVATAR_SIZE - 1,
+    height: AVATAR_SIZE - 1,
+    borderRadius: radius.iconLarge - 2,
   },
   copy: {
     flex: 1,
