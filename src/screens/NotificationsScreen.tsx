@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Pressable,
   ScrollView,
@@ -13,11 +13,11 @@ import { BackButton } from '../components/BackButton';
 import {
   ConsultationCompletedIcon,
   ConsultationReminderIcon,
-  FullMoonAlertIcon,
-  HoroscopeReadyIcon,
 } from '../components/icons/NotificationIcons';
 import { TotalAddedIcon } from '../components/icons/WalletIcons';
-import { notifications, type NotificationTint } from '../data/profile';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { type NotificationTint } from '../data/profile';
 import {
   colors,
   designFrame,
@@ -39,18 +39,33 @@ const TINTS: Record<NotificationTint, string> = {
 };
 
 /**
- * Vector glyph per notification, keyed by id — "Mercury goes Direct" has no
- * vector in the source design (it's plain "☿" text there too), so it falls
- * back to `item.glyph`. "Wallet Credited" reuses the Wallet screen's own
- * icon: Figma exports the identical asset for both.
+ * Look and feel per backend `Notification.type` (see
+ * `backend/models/Notification.js`'s `NOTIFICATION_TYPES`). Only a few types
+ * have a bespoke vector — Figma drew a handful of sample alerts, not one per
+ * type — so everything else falls back to a plain glyph, the same way
+ * "Mercury goes Direct" did in the original design fixture.
  */
-const NOTIFICATION_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
-  'n-2': ConsultationReminderIcon,
-  'n-3': props => <TotalAddedIcon {...props} color="#388753" />,
-  'n-4': HoroscopeReadyIcon,
-  'n-5': ConsultationCompletedIcon,
-  'n-6': FullMoonAlertIcon,
+const TYPE_META: Record<
+  string,
+  { tint: NotificationTint; glyph: string; Icon?: React.ComponentType<{ size?: number }> }
+> = {
+  consultation_request: { tint: 'lilac', glyph: '⏰', Icon: ConsultationReminderIcon },
+  consultation_started: { tint: 'lilac', glyph: '⏰', Icon: ConsultationReminderIcon },
+  consultation_ended: { tint: 'lilac', glyph: '✅', Icon: ConsultationCompletedIcon },
+  message: { tint: 'warm', glyph: '💬' },
+  wallet_credit: {
+    tint: 'mint',
+    glyph: '💰',
+    Icon: props => <TotalAddedIcon {...props} color="#388753" />,
+  },
+  wallet_debit: { tint: 'warm', glyph: '💸' },
+  withdrawal: { tint: 'warm', glyph: '🏦' },
+  review: { tint: 'mint', glyph: '⭐' },
+  application: { tint: 'lilac', glyph: '📄' },
+  promotion: { tint: 'mint', glyph: '🎁' },
+  system: { tint: 'warm', glyph: '🔔' },
 };
+const DEFAULT_META = { tint: 'warm' as NotificationTint, glyph: '🔔' };
 
 type NotificationsScreenProps = {
   onBack?: () => void;
@@ -59,13 +74,31 @@ type NotificationsScreenProps = {
 /** Alert feed, unread items tinted warm. Figma: node 180:163797. */
 export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
   const insets = useSafeAreaInsets();
-  const [readIds, setReadIds] = useState<ReadonlyArray<string>>([]);
+  const { data, loading, setData } = useApi(() => api.fetchNotifications(), []);
 
-  const isUnread = (id: string, unread: boolean) =>
-    unread && !readIds.includes(id);
-  const unreadCount = notifications.filter(item =>
-    isUnread(item.id, item.unread),
-  ).length;
+  const items = data?.items ?? [];
+  const unreadCount = data?.unread ?? 0;
+
+  const markAllRead = async () => {
+    if (unreadCount === 0) return;
+    try {
+      await api.markNotificationsRead();
+      setData(current =>
+        current
+          ? {
+              ...current,
+              unread: 0,
+              items: current.items.map(item => ({
+                ...item,
+                readAt: item.readAt ?? new Date().toISOString(),
+              })),
+            }
+          : current,
+      );
+    } catch {
+      /** Best effort — a re-open of this screen will show the true state. */
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -88,13 +121,15 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
           />
           <View>
             <Text style={styles.title}>Notifications</Text>
-            <Text style={styles.subtitle}>{unreadCount} unread</Text>
+            <Text style={styles.subtitle}>
+              {loading && !data ? 'Loading…' : `${unreadCount} unread`}
+            </Text>
           </View>
         </View>
 
         <Pressable
           accessibilityRole="button"
-          onPress={() => setReadIds(notifications.map(item => item.id))}
+          onPress={markAllRead}
           style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}
         >
           <Text style={styles.markAllLabel}>Mark all read</Text>
@@ -108,20 +143,25 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {notifications.map(item => {
-          const unread = isUnread(item.id, item.unread);
-          const Icon = NOTIFICATION_ICONS[item.id];
+        {!loading && items.length === 0 && (
+          <Text style={styles.empty}>You're all caught up — no notifications yet.</Text>
+        )}
+
+        {items.map(item => {
+          const unread = !item.readAt;
+          const meta = TYPE_META[item.type] ?? DEFAULT_META;
+          const Icon = meta.Icon;
 
           return (
             <View
               key={item.id}
               style={[styles.card, unread ? styles.cardUnread : styles.cardRead]}
             >
-              <View style={[styles.tile, { backgroundColor: TINTS[item.tint] }]}>
+              <View style={[styles.tile, { backgroundColor: TINTS[meta.tint] }]}>
                 {Icon ? (
                   <Icon size={24} />
                 ) : (
-                  <Text style={styles.tileGlyph}>{item.glyph}</Text>
+                  <Text style={styles.tileGlyph}>{meta.glyph}</Text>
                 )}
               </View>
 
@@ -134,8 +174,8 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
                   </Text>
                   {unread && <View style={styles.dot} />}
                 </View>
-                <Text style={styles.body_}>{item.body}</Text>
-                <Text style={styles.time}>{item.time}</Text>
+                {item.body ? <Text style={styles.body_}>{item.body}</Text> : null}
+                <Text style={styles.time}>{api.timeAgo(item.createdAt)}</Text>
               </View>
             </View>
           );
@@ -192,6 +232,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.section,
     paddingTop: spacing.md,
     gap: 10,
+  },
+  empty: {
+    ...typography.caption,
+    color: colors.text.muted,
+    textAlign: 'center',
+    paddingTop: spacing.xl,
   },
   card: {
     flexDirection: 'row',

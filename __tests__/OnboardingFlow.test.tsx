@@ -434,15 +434,15 @@ test('add money holds the CTA to the wallet limits', async () => {
 
   const amount = fieldNamed(tree, 'Amount to add');
   await ReactTestRenderer.act(() => {
-    amount.props.onChangeText('50');
+    amount.props.onChangeText('5');
   });
-  expect(textOf(tree)).toContain('Minimum top-up is ₹100');
+  expect(textOf(tree)).toContain('Minimum top-up is ₹10');
   expect(cta().props.disabled).toBe(true);
 
   await ReactTestRenderer.act(() => {
-    amount.props.onChangeText('60000');
+    amount.props.onChangeText('200000');
   });
-  expect(textOf(tree)).toContain('Maximum top-up is ₹50,000');
+  expect(textOf(tree)).toContain('Maximum top-up is ₹1,00,000');
   expect(cta().props.disabled).toBe(true);
 
   await ReactTestRenderer.act(() => {
@@ -955,24 +955,26 @@ test('wallet renders balance, quick add, totals and the ledger', async () => {
   const text = textOf(tree);
   expect(text).toContain('Wallet');
   expect(text).toContain('AVAILABLE BALANCE');
-  expect(text).toContain('₹ 1,250');
+  expect(text).toContain('₹1,250');
   expect(text).toContain('62 mins of chat consultation');
   expect(text).toContain('+ Add Money');
   expect(text).toContain('Quick Add');
   expect(text).toContain('₹2000');
   expect(text).toContain('Total Spent');
-  expect(text).toContain('₹4,500');
+  expect(text).toContain('₹1,750');
+  expect(text).toContain('Total Added');
+  expect(text).toContain('₹3,000');
   expect(text).toContain('Recent Transactions');
-  expect(text).toContain('Chat – Dr. Suresh Patel');
+  expect(text).toContain('Chat Consultation');
   expect(findTabs(tree)[3].props.accessibilityState.selected).toBe(true);
 });
 
 test('add money edits the amount and carries it to the CTA', async () => {
   const tree = await render(<AddMoneyScreen />);
   expect(textOf(tree)).toContain('Add Money');
-  expect(textOf(tree)).toContain('Min ₹100 · Max ₹50,000');
+  expect(textOf(tree)).toContain('Min ₹10 · Max ₹1,00,000');
   expect(textOf(tree)).toContain('Proceed to Pay ₹200');
-  expect(textOf(tree)).toContain('Secure Payments via Razorpay');
+  expect(textOf(tree)).toContain('Secure Payments');
 
   // Picking ₹1K updates both the field and the button.
   const chip = tree.root.findAll(
@@ -1021,7 +1023,7 @@ test('processing settles into the receipt', async () => {
   const onSettled = jest.fn();
   const tree = await render(<PaymentProcessingScreen onSettled={onSettled} />);
   expect(textOf(tree)).toContain('Processing Payment');
-  expect(textOf(tree)).toContain('Powered by Razorpay');
+  expect(textOf(tree)).toContain('256-bit encrypted');
   expect(onSettled).not.toHaveBeenCalled();
 
   await ReactTestRenderer.act(() => {
@@ -1257,8 +1259,11 @@ test('astrologer detail renders every section', async () => {
   expect(text).toContain('₹20/min');
   expect(text).toContain('Follow');
   expect(text).toContain('Astro Media');
+  /** The Specialization section lists the astrologer's own declared expertise. */
   expect(text).toContain('Specialization');
-  expect(text).toContain('Career & Job');
+  expect(text).toContain('Vedic');
+  expect(text).toContain('Languages Known');
+  expect(text).toContain('English');
   expect(text).toContain('About Us');
   expect(text).toContain('Read More');
   expect(text).toContain('Chat Now');

@@ -19,12 +19,9 @@ import {
   WalletCreditTileIcon,
   WalletDebitTileIcon,
 } from '../components/icons/WalletIcons';
-import {
-  quickAddAmounts,
-  transactions,
-  wallet,
-  type Transaction,
-} from '../data/wallet';
+import { quickAddAmounts } from '../data/wallet';
+import { useApi } from '../hooks/useApi';
+import { fetchTransactions, fetchWallet, rupees } from '../services/api';
 import {
   colors,
   designFrame,
@@ -40,6 +37,16 @@ const ADD_BUTTON_WIDTH = 140.939;
 const ADD_BUTTON_HEIGHT = 43.998;
 const CHIP_HEIGHT = 39.999;
 const TILE_SIZE = 43.998;
+/** Only the newest few show here; the full ledger is Transaction History. */
+const RECENT_COUNT = 5;
+/**
+ * Roughly what a chat consultation costs, just to give the balance a sense
+ * of "how long this actually gets you" — there's no per-user typical rate to
+ * read yet, so this is a stated approximation, not a real figure.
+ */
+const APPROX_CHAT_RATE_PER_MIN = 20;
+
+type Transaction = { id: string; title: string; timestamp: string; amount: string; credit: boolean };
 
 type WalletScreenProps = {
   onAddMoney?: (amount?: number) => void;
@@ -90,6 +97,14 @@ export function WalletScreen({
 }: WalletScreenProps) {
   const insets = useSafeAreaInsets();
 
+  /** Refetched on every visit — this screen fully remounts on each navigation. */
+  const wallet = useApi(() => fetchWallet(), []);
+  const recent = useApi(() => fetchTransactions('all'), []);
+
+  const balance = wallet.data?.balance ?? 0;
+  const chatMinutes = Math.floor(balance / APPROX_CHAT_RATE_PER_MIN);
+  const transactions: Transaction[] = (recent.data ?? []).slice(0, RECENT_COUNT);
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" />
@@ -114,8 +129,10 @@ export function WalletScreen({
               to={colors.gradient.balanceTo}
             />
             <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
-            <Text style={styles.balance}>{wallet.balance}</Text>
-            <Text style={styles.balanceHint}>{wallet.equivalent}</Text>
+            <Text style={styles.balance}>{rupees(balance)}</Text>
+            <Text style={styles.balanceHint}>
+              ≈ {chatMinutes} mins of chat consultation
+            </Text>
 
             <Pressable
               accessibilityRole="button"
@@ -154,7 +171,7 @@ export function WalletScreen({
             <View style={[styles.statTile, styles.statSpent]}>
               <TotalSpentIcon size={20} />
               <Text style={[styles.statValue, styles.statValueSpent]}>
-                {wallet.totalSpent}
+                {rupees(wallet.data?.totalSpent ?? 0)}
               </Text>
               <Text style={styles.statLabel}>Total Spent</Text>
             </View>
@@ -162,7 +179,7 @@ export function WalletScreen({
             <View style={[styles.statTile, styles.statAdded]}>
               <TotalAddedIcon size={24} />
               <Text style={[styles.statValue, styles.statValueAdded]}>
-                {wallet.totalAdded}
+                {rupees(wallet.data?.totalAdded ?? 0)}
               </Text>
               <Text style={styles.statLabel}>Total Added</Text>
             </View>

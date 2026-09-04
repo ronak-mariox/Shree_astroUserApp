@@ -66,7 +66,7 @@ export function PaymentScreen({ amount, onBack, onPay }: PaymentScreenProps) {
         />
         <View>
           <Text style={styles.title}>Payment</Text>
-          <Text style={styles.subtitle}>Secure checkout via Razorpay</Text>
+          <Text style={styles.subtitle}>Secure checkout</Text>
         </View>
       </View>
 

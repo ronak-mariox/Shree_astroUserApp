@@ -31,6 +31,7 @@ import {
   profileMenu,
   type MenuKey,
 } from '../data/profile';
+import { rupees, shortDate } from '../services/api';
 import {
   colors,
   designFrame,
@@ -65,6 +66,17 @@ type ProfileScreenProps = {
    * app always passes the real thing.
    */
   user?: { name?: string; email?: string; avatarUrl?: string };
+  /**
+   * The rest of GET /users/me — wallet, stats and birth details are shown
+   * when present and fall back to the design fixture otherwise, the same as
+   * `user` above.
+   */
+  profile?: {
+    zodiac?: { sunSign?: string };
+    birthDetails?: { dateOfBirth?: string; place?: { formatted?: string } };
+    wallet?: { balance?: number };
+    stats?: { consultations?: number; kundlis?: number };
+  };
   onSelectMenu?: (key: MenuKey) => void;
   onLogout?: () => void;
   activeTab?: TabKey;
@@ -77,6 +89,7 @@ type ProfileScreenProps = {
  */
 export function ProfileScreen({
   user,
+  profile,
   onSelectMenu,
   onLogout,
   activeTab = 'profile',
@@ -84,10 +97,22 @@ export function ProfileScreen({
 }: ProfileScreenProps) {
   const insets = useSafeAreaInsets();
 
-  /** Only the identity line is the user's; the rest is still placeholder copy. */
   const name = user?.name || account.name;
   const email = user?.email || account.email;
-  const ZodiacGlyph = ZODIAC_ICONS[account.sunSign];
+  const sunSign = profile?.zodiac?.sunSign || account.sunSign;
+  const ZodiacGlyph = ZODIAC_ICONS[sunSign] ?? ZODIAC_ICONS[account.sunSign];
+  const birthPlace = profile?.birthDetails?.place?.formatted;
+  const identityLine =
+    profile?.birthDetails?.dateOfBirth && birthPlace
+      ? `${sunSign} · ${shortDate(profile.birthDetails.dateOfBirth)} · ${birthPlace}`
+      : account.identityLine;
+  const stats = profile
+    ? [
+        { value: rupees(profile.wallet?.balance ?? 0), label: 'Wallet' },
+        { value: String(profile.stats?.consultations ?? 0), label: 'Consults' },
+        { value: String(profile.stats?.kundlis ?? 0), label: 'Kundlis' },
+      ]
+    : accountStats;
 
   return (
     <View style={styles.screen}>
@@ -115,11 +140,11 @@ export function ProfileScreen({
           <Text style={styles.email}>{email}</Text>
           <View style={styles.identityRow}>
             {ZodiacGlyph && <ZodiacGlyph size={13} />}
-            <Text style={styles.identity}>{account.identityLine}</Text>
+            <Text style={styles.identity}>{identityLine}</Text>
           </View>
 
           <View style={styles.stats}>
-            {accountStats.map(stat => (
+            {stats.map(stat => (
               <View key={stat.label} style={styles.statTile}>
                 <Text style={styles.statValue}>{stat.value}</Text>
                 <Text style={styles.statLabel}>{stat.label}</Text>

@@ -146,7 +146,20 @@ export const saveKundli = async () => ({ _id: 'k-1' });
 export const deleteKundli = async () => {};
 
 export const fetchWallet = async () => ({ balance: 1250, totalAdded: 3000, totalSpent: 1750 });
-export const fetchTransactions = async () => [];
+
+const TRANSACTIONS = [
+  { id: 'l-1', title: 'Wallet Top-up', detail: 'UPI – GPay', timestamp: '13 Jul 2026 · 12:34 PM', amount: '+₹500', reference: '71312345', credit: true },
+  { id: 'l-2', title: 'Chat Consultation', detail: 'Pt. Rajesh Sharma · 32 min', timestamp: '12 Jul 2026 · 11:32 AM', amount: '-₹640', reference: '71211231', credit: false },
+  { id: 'l-3', title: 'Voice Consultation', detail: 'Kavita Joshi · 18 min', timestamp: '8 Jul 2026 · 3:44 PM', amount: '-₹270', reference: '70833412', credit: false },
+  { id: 'l-4', title: 'Wallet Top-up', detail: 'Debit Card – HDFC', timestamp: '5 Jul 2026 · 2:10 PM', amount: '+₹1000', reference: '70521001', credit: true },
+  { id: 'l-5', title: 'Chat Consultation', detail: 'Dr. Suresh Patel · 25 min', timestamp: '1 Jul 2026 · 10:05 AM', amount: '-₹375', reference: '70110055', credit: false },
+];
+
+export const fetchTransactions = async (filter: 'all' | 'added' | 'spent' = 'all') => {
+  if (filter === 'added') return TRANSACTIONS.filter(row => row.credit);
+  if (filter === 'spent') return TRANSACTIONS.filter(row => !row.credit);
+  return TRANSACTIONS;
+};
 export const startTopUp = async () => ({
   transactionId: 't-1', reference: 'TXN-ABC123', orderId: 'ORD-1', amount: 500,
 });

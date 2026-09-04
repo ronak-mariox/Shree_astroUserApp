@@ -128,20 +128,3 @@ export const consultationHistory: ReadonlyArray<{
 
 /** Tint behind a notification's glyph, keyed by what the alert is about. */
 export type NotificationTint = 'warm' | 'lilac' | 'mint';
-
-export const notifications: ReadonlyArray<{
-  id: string;
-  glyph: string;
-  tint: NotificationTint;
-  title: string;
-  body: string;
-  time: string;
-  unread: boolean;
-}> = [
-  { id: 'n-1', glyph: '☿', tint: 'warm', title: 'Mercury goes Direct today!', body: 'Mercury retrograde ends today. Favorable time for signing contracts and new communications.', time: '2 hrs ago', unread: true },
-  { id: 'n-2', glyph: '⏰', tint: 'lilac', title: 'Consultation Reminder', body: 'Your scheduled session with Pt. Rajesh Sharma starts in 30 minutes.', time: '5 hrs ago', unread: true },
-  { id: 'n-3', glyph: '💰', tint: 'mint', title: 'Wallet Credited ₹500', body: 'Your wallet has been successfully topped up with ₹500 via UPI.', time: 'Yesterday', unread: false },
-  { id: 'n-4', glyph: '♌', tint: 'warm', title: "Today's Horoscope Ready", body: 'Your daily Leo horoscope for 13 July 2026 is now available. Tap to read.', time: 'Yesterday', unread: false },
-  { id: 'n-5', glyph: '✅', tint: 'lilac', title: 'Consultation Completed', body: 'Your 32-minute chat with Pt. Rajesh Sharma has ended. ₹640 deducted.', time: '2 days ago', unread: false },
-  { id: 'n-6', glyph: '🌕', tint: 'warm', title: 'Full Moon Alert', body: 'Full Moon in Capricorn on 15 July. Significant planetary alignment affecting your career house.', time: '3 days ago', unread: false },
-];

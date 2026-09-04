@@ -45,7 +45,10 @@ export type AstrologerProfile = {
     call: { was: string; now: string };
   };
   media: ReadonlyArray<ImageSourcePropType>;
+  /** The Specialization section — the astrologer's own declared expertise. */
   specializations: ReadonlyArray<string>;
+  /** The Languages Known section. */
+  languagesList: ReadonlyArray<string>;
   about: string;
 };
 

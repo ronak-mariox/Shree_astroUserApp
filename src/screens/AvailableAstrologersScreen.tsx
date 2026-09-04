@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
+import { ConsultBannerCard, ConsultBannerDots } from '../components/ConsultBannerCard';
 import { ConsultFilterAppliedDialog } from '../components/ConsultFilterAppliedDialog';
 import { useApi } from '../hooks/useApi';
 import * as api from '../services/api';
@@ -20,7 +21,6 @@ import { portraitOf } from '../utils/images';
 import { ConsultFilterSheet } from '../components/ConsultFilterSheet';
 import { ArrowLeftIcon } from '../components/icons/ArrowLeftIcon';
 import {
-  CarouselDotsIcon,
   ChatMarkBody,
   ChatMarkDot1,
   ChatMarkDot2,
@@ -40,7 +40,7 @@ import {
 } from '../components/icons/ConsultIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import {
-  consultBanner,
+  consultBanners,
   consultCategories,
   consultPalette,
   consultTags,
@@ -90,7 +90,6 @@ const ICON = {
   toggleChat: 21.5002,
   toggleCall: 17.8125,
   language: 12.2314,
-  dots: 45.7364,
   chatBody: 9.69247,
   chatTail: 8.50782,
   chatDot1: 1.077,
@@ -151,10 +150,13 @@ export function AvailableAstrologersScreen({
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const scale = width / DESIGN_WIDTH;
+  const px = (value: number) => value * scale;
   const styles = useMemo(() => createStyles(scale), [scale]);
 
   const [mode, setMode] = useState<ConsultMode>('chat');
   const [category, setCategory] = useState<ConsultCategory>('all');
+  const [bannerIndex, setBannerIndex] = useState(0);
+  const bannerWidth = px(370.035);
 
   /** The Sort & Filter sheet, and the receipt it leaves behind on Apply. */
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -369,15 +371,33 @@ export function AvailableAstrologersScreen({
 
         <View style={styles.banner}>
           <View style={styles.bannerFrame}>
-            <Image
-              source={consultBanner.image}
-              style={styles.bannerImage}
-              accessibilityLabel={consultBanner.headline}
-              accessible
-            />
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ width: bannerWidth }}
+              onMomentumScrollEnd={event => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / bannerWidth);
+                setBannerIndex(Math.max(0, Math.min(index, consultBanners.length - 1)));
+              }}
+            >
+              {consultBanners.map(slide => (
+                <ConsultBannerCard
+                  key={slide.id}
+                  slide={slide}
+                  width={bannerWidth}
+                  height={px(55.667)}
+                  imageNaturalHeight={px(102.275)}
+                />
+              ))}
+            </ScrollView>
           </View>
           <View style={styles.dots}>
-            <CarouselDotsIcon size={ICON.dots * scale} />
+            <ConsultBannerDots
+              count={consultBanners.length}
+              activeIndex={bannerIndex}
+              scale={scale}
+            />
           </View>
         </View>
 
@@ -706,15 +726,11 @@ function createStyles(scale: number) {
       // 223.345 down the frame, with the chips ending at 207.119.
       paddingTop: px(16.226),
     },
-    /** The export is 370 x 102.27, but its art stops at 55.667. */
+    /** The marriage export is 370 x 102.27, but its art stops at 55.667 — the other slides are drawn at that visible size directly. */
     bannerFrame: {
       width: px(370.035),
       height: px(55.667),
       overflow: 'hidden',
-    },
-    bannerImage: {
-      width: px(370.035),
-      height: px(102.275),
     },
     dots: {
       paddingTop: px(8.62),

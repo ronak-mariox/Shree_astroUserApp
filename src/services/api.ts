@@ -28,7 +28,14 @@ import {
   DUMMY_WALLET,
   nextTicketReference,
 } from './dummyData';
-import { USE_DUMMY_DATA } from './dummyMode';
+import {
+  USE_DUMMY_ASTROLOGERS,
+  USE_DUMMY_AUTH,
+  USE_DUMMY_DATA,
+  USE_DUMMY_HOME,
+  USE_DUMMY_NOTIFICATIONS,
+  USE_DUMMY_WALLET,
+} from './dummyMode';
 
 /* -------------------------------------------------------------------------- */
 /* Translating between the API's ids and the screens' words                   */
@@ -72,6 +79,26 @@ export const dateTime = (value?: string) =>
       })}`
     : '—';
 
+/** An ISO date -> "5 mins ago" / "2 hrs ago" / "Yesterday" / "12 Jul 2026". */
+export const timeAgo = (value?: string) => {
+  if (!value) return '—';
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return '—';
+
+  const minutes = Math.floor((Date.now() - then) / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr${hours === 1 ? '' : 's'} ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+
+  return shortDate(value);
+};
+
 /* -------------------------------------------------------------------------- */
 /* Home                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -102,7 +129,7 @@ export type Home = {
 
 /** Everything the home screen prints, in one call. */
 export async function fetchHome(): Promise<Home> {
-  if (USE_DUMMY_DATA) return DUMMY_HOME;
+  if (USE_DUMMY_HOME) return DUMMY_HOME;
   const { data } = await client.get<Home>('/users/me/home');
   return data;
 }
@@ -198,7 +225,7 @@ function filterDummyAstrologers(filters: DirectoryFilters): DirectoryCard[] {
 export async function fetchAstrologers(
   filters: DirectoryFilters = {},
 ): Promise<{ items: DirectoryCard[]; total: number }> {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_ASTROLOGERS) {
     const items = filterDummyAstrologers(filters);
     return { items, total: items.length };
   }
@@ -218,7 +245,7 @@ export async function fetchAstrologers(
 
 /** The astrologer detail screen: the card fields plus about and gallery. */
 export async function fetchAstrologer(astrologerId: string) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_ASTROLOGERS) {
     const astrologer = DUMMY_ASTROLOGERS.find(row => row.id === astrologerId);
     if (!astrologer) {
       throw new Error('That astrologer is no longer listed.');
@@ -231,7 +258,7 @@ export async function fetchAstrologer(astrologerId: string) {
 
 /** Adds or removes a favourite. The answer says which way it went. */
 export async function toggleFavourite(astrologerId: string): Promise<boolean> {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_ASTROLOGERS) {
     const index = DUMMY_FAVOURITE_IDS.indexOf(astrologerId);
     if (index === -1) {
       DUMMY_FAVOURITE_IDS.push(astrologerId);
@@ -245,7 +272,7 @@ export async function toggleFavourite(astrologerId: string): Promise<boolean> {
 }
 
 export async function fetchFavourites(): Promise<DirectoryCard[]> {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_ASTROLOGERS) {
     return DUMMY_ASTROLOGERS.filter(row => DUMMY_FAVOURITE_IDS.includes(row.id));
   }
   const { data } = await client.get('/users/me/favourites');
@@ -257,7 +284,7 @@ export async function fetchFavourites(): Promise<DirectoryCard[]> {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchProfile() {
-  if (USE_DUMMY_DATA) return DUMMY_USER;
+  if (USE_DUMMY_AUTH) return DUMMY_USER;
   const { data } = await client.get('/users/me');
   return data.user;
 }
@@ -277,7 +304,7 @@ export async function saveProfile(changes: {
   placeOfBirth?: string;
   photo?: { uri: string; name?: string; type?: string };
 }) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_AUTH) {
     const { photo, fullName, ...fields } = changes;
     Object.assign(DUMMY_USER, fields);
     if (fullName) DUMMY_USER.name = fullName;
@@ -353,14 +380,14 @@ export async function deleteKundli(kundliId: string) {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchWallet() {
-  if (USE_DUMMY_DATA) return DUMMY_WALLET;
+  if (USE_DUMMY_WALLET) return DUMMY_WALLET;
   const { data } = await client.get('/wallet');
   return data.wallet;
 }
 
 /** The ledger. `filter` is what the screen's three tabs send. */
 export async function fetchTransactions(filter: 'all' | 'added' | 'spent' = 'all') {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_WALLET) {
     const rows = DUMMY_TRANSACTIONS.filter(row => {
       if (filter === 'added') return row.direction === 'credit';
       if (filter === 'spent') return row.direction === 'debit';
@@ -401,7 +428,7 @@ export async function fetchTransactions(filter: 'all' | 'added' | 'spent' = 'all
 const dummyPendingTopUps = new Map<string, number>();
 
 export async function startTopUp(amount: number) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_WALLET) {
     const transactionId = `pending-${Date.now()}`;
     dummyPendingTopUps.set(transactionId, amount);
     return {
@@ -415,8 +442,13 @@ export async function startTopUp(amount: number) {
   return data as { transactionId: string; reference: string; orderId: string; amount: number };
 }
 
-export async function confirmTopUp(transactionId: string, paymentId?: string) {
-  if (USE_DUMMY_DATA) {
+/**
+ * `method` is cosmetic today — there is no gateway to report one back — but
+ * it is recorded on the transaction so the receipt shows what the user
+ * picked, and so nothing has to change here once a real gateway does.
+ */
+export async function confirmTopUp(transactionId: string, paymentId?: string, method?: string) {
+  if (USE_DUMMY_WALLET) {
     const amount = dummyPendingTopUps.get(transactionId) ?? 0;
     dummyPendingTopUps.delete(transactionId);
 
@@ -425,19 +457,27 @@ export async function confirmTopUp(transactionId: string, paymentId?: string) {
     DUMMY_WALLET.lastTransactionAt = new Date().toISOString();
     DUMMY_HOME.wallet.balance = DUMMY_WALLET.balance;
 
-    const transaction = {
+    const reference = `TXN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    DUMMY_TRANSACTIONS.unshift({
       _id: transactionId,
-      reference: `TXN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      reference,
       title: 'Wallet Top-up',
       type: 'topup',
       direction: 'credit',
       amount,
       createdAt: new Date().toISOString(),
+    });
+
+    return {
+      id: transactionId,
+      reference,
+      amount,
+      balanceAfter: DUMMY_WALLET.balance,
+      status: 'success',
+      method,
     };
-    DUMMY_TRANSACTIONS.unshift(transaction);
-    return transaction;
   }
-  const { data } = await client.post('/wallet/topup/confirm', { transactionId, paymentId });
+  const { data } = await client.post('/wallet/topup/confirm', { transactionId, paymentId, method });
   return data.transaction;
 }
 
@@ -601,20 +641,30 @@ export async function askAi(text: string, clientMessageId?: string) {
 /* Notifications and support                                                  */
 /* -------------------------------------------------------------------------- */
 
+export type NotificationRow = {
+  id: string;
+  type: string;
+  title: string;
+  body?: string;
+  action?: { screen?: string; id?: string };
+  createdAt: string;
+  readAt?: string;
+};
+
 export async function fetchNotifications() {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_NOTIFICATIONS) {
     return {
-      items: DUMMY_NOTIFICATIONS,
+      items: DUMMY_NOTIFICATIONS as NotificationRow[],
       total: DUMMY_NOTIFICATIONS.length,
       unread: DUMMY_NOTIFICATIONS.filter(row => !row.readAt).length,
     };
   }
   const { data } = await client.get('/notifications', { params: { limit: 50 } });
-  return data as { items: any[]; total: number; unread: number };
+  return data as { items: NotificationRow[]; total: number; unread: number };
 }
 
 export async function markNotificationsRead(notificationId?: string) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_NOTIFICATIONS) {
     const now = new Date().toISOString();
     for (const notification of DUMMY_NOTIFICATIONS) {
       if (!notificationId || notification.id === notificationId) {
@@ -624,7 +674,7 @@ export async function markNotificationsRead(notificationId?: string) {
     return { ok: true };
   }
   const { data } = await client.post('/notifications/read', { notificationId });
-  return data;
+  return data as { updated: number; unread: number };
 }
 
 export async function raiseTicket(issueType: string, description: string, chatId?: string) {

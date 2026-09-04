@@ -5,16 +5,21 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type { TabKey } from './src/components/BottomTabBar';
 import type { BirthDetails } from './src/screens/BirthDetailsScreen';
 import type { Profile } from './src/screens/ProfileCreationScreen';
-import { register, signOut, type PhotoAsset } from './src/services/auth';
+import type { Receipt } from './src/screens/PaymentSuccessScreen';
+import { register, signOut, type AuthSession, type PhotoAsset } from './src/services/auth';
+import { confirmTopUp, fetchProfile, rupees, saveProfile, startTopUp } from './src/services/api';
+import { ApiError } from './src/services/client';
+import { paymentMethods, type PaymentMethodId } from './src/data/wallet';
 import {
   onSessionChange,
   restoreSession,
+  updateUser,
   type Session,
 } from './src/services/session';
 import { colors } from './src/theme';
@@ -26,7 +31,7 @@ import { AstrologerDetailScreen } from './src/screens/AstrologerDetailScreen';
 import { AstrologyAnalysisScreen } from './src/screens/AstrologyAnalysisScreen';
 import { AvailableAstrologersScreen } from './src/screens/AvailableAstrologersScreen';
 import { ConsultationHistoryScreen } from './src/screens/ConsultationHistoryScreen';
-import { EditProfileScreen } from './src/screens/EditProfileScreen';
+import { EditProfileScreen, type ProfileChanges } from './src/screens/EditProfileScreen';
 import { EmailLoginScreen } from './src/screens/EmailLoginScreen';
 import { ComingSoonScreen } from './src/screens/ComingSoonScreen';
 import { ChatIntakeScreen } from './src/screens/ChatIntakeScreen';
@@ -104,12 +109,57 @@ const TAB_ROUTES: Partial<Record<TabKey, Route>> = {
   profile: 'profile',
 };
 
+/**
+ * Routes reachable without a session: everything up to signing in or
+ * registering, plus the coming-soon screen (its Google/Apple buttons are
+ * reachable from those same pre-login screens). Every other route is only
+ * ever set from a place in this file that already checked `session` first —
+ * this is the backstop for anything that stops being true as the app grows.
+ */
+const PUBLIC_ROUTES = new Set<Route>([
+  'restoring',
+  'welcome',
+  'loginOptions',
+  'otpLogin',
+  'emailLogin',
+  'profileCreation',
+  'birthDetails',
+  'comingSoon',
+]);
+
+/** "1999-08-15T00:00:00.000Z" -> "15/08/1999". Read as UTC fields, since a birth date is stored at UTC midnight precisely so no local timezone can shift the day. */
+function dobFromIso(value?: string): string {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${date.getUTCFullYear()}`;
+}
+
 function App() {
   const [route, setRoute] = useState<Route>('restoring');
   /** Who is signed in, mirrored from the session store for the shell to read. */
   const [session, setSession] = useState<Session | null>(null);
+  /**
+   * The rest of GET /users/me — wallet, stats, birth details — that the
+   * session itself does not carry. Profile and Edit Profile both read this;
+   * it is `undefined` until the first fetch resolves, in which case those
+   * screens fall back to their design fixtures rather than showing nothing.
+   */
+  const [profile, setProfile] = useState<any>();
   /** Amount carried through the wallet top-up flow. */
   const [topUp, setTopUp] = useState(200);
+  /** The pending row `startTopUp` opened — what `confirmTopUp` settles. */
+  const [topUpTransactionId, setTopUpTransactionId] = useState<string>();
+  /** Cosmetic today (no gateway to actually route through) but recorded on the transaction. */
+  const [topUpMethod, setTopUpMethod] = useState<PaymentMethodId>();
+  /** What `confirmTopUp` came back with, for the receipt screen to print. */
+  const [topUpReceipt, setTopUpReceipt] = useState<Receipt>();
   /** Whoever was tapped in a listing, and the screen to go back to. */
   const [astrologer, setAstrologer] = useState<AstrologerSummary>();
   const [astrologerOrigin, setAstrologerOrigin] = useState<Route>('home');
@@ -162,7 +212,18 @@ function App() {
         return;
       }
       setSession(restored);
-      setRoute(restored ? 'home' : 'welcome');
+      if (!restored) {
+        setRoute('welcome');
+      } else {
+        /**
+         * `!== false` rather than a truthy check: a session saved before this
+         * field existed has no `profileComplete` at all, and `undefined`
+         * should read as "nothing known to be missing", not "incomplete" — an
+         * already-complete user should never be shoved into Edit Profile
+         * just because the app was updated since they last signed in.
+         */
+        setRoute(restored.user.profileComplete !== false ? 'home' : 'editProfile');
+      }
     });
 
     return () => {
@@ -187,13 +248,146 @@ function App() {
     [],
   );
 
-  /** Signing in from any flow lands in the same place. */
-  const enterApp = () => setRoute('home');
+  /**
+   * A defensive backstop, not the app's actual gate: nothing today routes to
+   * a protected screen without a session behind it already, but as more
+   * screens and entry points are added that could stop being true, and a
+   * signed-out session should never be one stray `setRoute` away from a
+   * protected screen staying on-screen.
+   */
+  useEffect(() => {
+    if (route !== 'restoring' && !session && !PUBLIC_ROUTES.has(route)) {
+      setRoute('welcome');
+    }
+  }, [route, session]);
+
+  /**
+   * The rest of the account — wallet, stats, birth details — for Profile and
+   * Edit Profile. Refetched whenever a different account signs in; a token
+   * refresh alone does not change `session.user.id`, so it does not retrigger
+   * this.
+   */
+  useEffect(() => {
+    if (!session) {
+      setProfile(undefined);
+      return;
+    }
+    let live = true;
+    fetchProfile()
+      .then(data => {
+        if (live) {
+          setProfile(data);
+        }
+      })
+      .catch(error => {
+        /** The profile screens fall back to their fixture; nothing to show the user for this. */
+        console.warn('fetchProfile failed, Profile tab will show placeholder stats:', error);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
+
+  /**
+   * Signing in from any flow lands here. Register and OTP login always leave
+   * `profileComplete: true` (the wizard collects everything up front, and OTP
+   * sign-in never opens a new account), so this always routes them to Home.
+   * A first-time Apple/Google sign-in can come back `false` — that account
+   * was opened with only what the provider handed over, nothing astrology
+   * related — so this sends it to Edit Profile instead, pre-filled with
+   * whatever is known, to collect the rest before Home.
+   */
+  const afterSignIn = (signedIn: AuthSession) => {
+    setRoute(signedIn.user.profileComplete !== false ? 'home' : 'editProfile');
+  };
 
   /** Clears the keystore first, so "logged out" is true before it is drawn. */
   const handleLogout = async () => {
     await signOut();
     setRoute('welcome');
+  };
+
+  /**
+   * Saves an Edit Profile change. `saveProfile` already knows to send
+   * multipart only when a photo actually came with it (see services/api.ts).
+   * The session's cached user is refreshed too, since that is what the
+   * Profile header and the app shell itself read between fetches — including
+   * `profileComplete`, which is how a just-completed Apple/Google account
+   * stops being routed back to Edit Profile on its next sign-in.
+   */
+  const saveProfileChanges = async (changes: ProfileChanges, photo?: PhotoAsset) => {
+    const updated = await saveProfile({ ...changes, photo });
+    setProfile(updated);
+    if (session) {
+      await updateUser({
+        ...session.user,
+        name: updated?.name ?? session.user.name,
+        email: updated?.email ?? session.user.email,
+        avatarUrl: updated?.avatarUrl ?? session.user.avatarUrl,
+        profileComplete: updated?.profileComplete ?? session.user.profileComplete,
+      });
+    }
+  };
+
+  /**
+   * Add Money → Payment → Processing → Success.
+   *
+   * There is no payment gateway behind this yet — see the doc comment on
+   * services/wallet.service.js on the backend — so `startTopUp` opens a
+   * pending row and `confirmTopUp` (called from PaymentProcessingScreen's
+   * `onSettled`) credits the wallet immediately. Both calls exist as the
+   * two-step shape a real gateway would need, so wiring one in later is
+   * filling the gap between them, not a rewrite.
+   */
+  const beginTopUp = async (amount: number) => {
+    try {
+      const order = await startTopUp(amount);
+      setTopUpTransactionId(order.transactionId);
+      setTopUp(amount);
+      setRoute('payment');
+    } catch (error) {
+      Alert.alert(
+        'Could not start top-up',
+        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      );
+    }
+  };
+
+  /** Called by PaymentProcessingScreen once its interstitial beat is done. */
+  const settleTopUp = async () => {
+    if (!topUpTransactionId) {
+      setRoute('payment');
+      return;
+    }
+
+    const methodLabel = paymentMethods.find(option => option.id === topUpMethod)?.name ?? '—';
+    const transaction = await confirmTopUp(topUpTransactionId, undefined, methodLabel);
+    const amount = transaction.amount ?? topUp;
+    const balanceAfter = transaction.balanceAfter ?? amount;
+
+    setTopUpReceipt({
+      transactionId: transaction.reference ?? transaction.id ?? topUpTransactionId,
+      method: transaction.method ?? methodLabel,
+      dateTime: new Date().toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }),
+      previousBalance: rupees(balanceAfter - amount),
+      newBalance: rupees(balanceAfter),
+    });
+    setTopUpTransactionId(undefined);
+    setRoute('paymentSuccess');
+  };
+
+  /** A confirmTopUp failure — the interstitial's beat already ran; explain and go back. */
+  const failTopUp = (message: string) => {
+    Alert.alert('Payment failed', message);
+    setRoute('payment');
   };
 
   /**
@@ -317,7 +511,7 @@ function App() {
       {route === 'otpLogin' && (
         <OtpLoginScreen
           onBack={() => setRoute('loginOptions')}
-          onVerified={enterApp}
+          onVerified={afterSignIn}
           onRegister={() => setRoute('profileCreation')}
           onGooglePress={() =>
             comeBackLater('otpLogin', 'Google Sign-In', undefined, '🔑')
@@ -331,7 +525,7 @@ function App() {
       {route === 'emailLogin' && (
         <EmailLoginScreen
           onBack={() => setRoute('loginOptions')}
-          onVerified={enterApp}
+          onVerified={afterSignIn}
           onRegister={() => setRoute('profileCreation')}
           onGooglePress={() =>
             comeBackLater('emailLogin', 'Google Sign-In', undefined, '🔑')
@@ -516,8 +710,7 @@ function App() {
           initialAmount={topUp}
           onBack={() => setRoute('wallet')}
           onProceed={amount => {
-            setTopUp(amount);
-            setRoute('payment');
+            beginTopUp(amount);
           }}
         />
       )}
@@ -526,19 +719,21 @@ function App() {
         <PaymentScreen
           amount={topUp}
           onBack={() => setRoute('addMoney')}
-          onPay={() => setRoute('paymentProcessing')}
+          onPay={method => {
+            setTopUpMethod(method);
+            setRoute('paymentProcessing');
+          }}
         />
       )}
 
       {route === 'paymentProcessing' && (
-        <PaymentProcessingScreen
-          onSettled={() => setRoute('paymentSuccess')}
-        />
+        <PaymentProcessingScreen onSettled={settleTopUp} onFailed={failTopUp} />
       )}
 
       {route === 'profile' && (
         <ProfileScreen
           user={session?.user}
+          profile={profile}
           activeTab="profile"
           onSelectTab={selectTab}
           onLogout={handleLogout}
@@ -558,16 +753,24 @@ function App() {
 
       {route === 'editProfile' && (
         <EditProfileScreen
-          onBack={() => setRoute('profile')}
-          onSave={() => setRoute('profile')}
-          onPickPhoto={() =>
-            comeBackLater(
-              'editProfile',
-              'Profile Photo',
-              'Uploading a photo from your camera or gallery is on its way.',
-              '📷',
-            )
+          initial={
+            (profile || session) && {
+              fullName: profile?.name ?? session?.user.name ?? '',
+              email: profile?.email ?? session?.user.email ?? '',
+              phone: profile?.phone ?? session?.user.phone ?? '',
+              dateOfBirth: dobFromIso(profile?.birthDetails?.dateOfBirth),
+              timeOfBirth: profile?.birthDetails?.timeOfBirth ?? '',
+              placeOfBirth: profile?.birthDetails?.place?.formatted ?? '',
+              gender: profile?.gender,
+              avatarUrl: profile?.avatarUrl ?? session?.user.avatarUrl,
+            }
           }
+          onBack={() => setRoute('profile')}
+          onSave={async (changes, photo) => {
+            await saveProfileChanges(changes, photo);
+            setRoute('profile');
+          }}
+          onPickPhoto={pickProfilePhoto}
         />
       )}
 
@@ -599,6 +802,7 @@ function App() {
       {route === 'paymentSuccess' && (
         <PaymentSuccessScreen
           amount={topUp}
+          receipt={topUpReceipt}
           onGoToWallet={() => setRoute('wallet')}
           onBackToHome={() => setRoute('home')}
         />

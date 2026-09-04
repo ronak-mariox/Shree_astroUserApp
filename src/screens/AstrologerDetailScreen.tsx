@@ -133,7 +133,13 @@ export function AstrologerDetailScreen({
       ],
       rates: { chat: rates, call: callRates },
       media: (row?.gallery ?? []).map((url: string) => ({ uri: url })),
-      specializations: row?.specializations ?? [],
+      /** The astrologer's declared skill — falls back to any free-text
+       *  specializations they've set, for an astrologer who has one but not
+       *  the other. */
+      specializations: expertise.length
+        ? expertise.map(api.titleCase)
+        : row?.specializations ?? [],
+      languagesList: row?.languages ? row.languages.map(api.titleCase) : [],
       about: row?.about ?? '',
     };
   }, [detail.data, astrologer]);
@@ -293,6 +299,15 @@ export function AstrologerDetailScreen({
           <Text style={styles.sectionTitle}>Specialization</Text>
           <View style={styles.specializations}>
             {profile.specializations.map(item => (
+              <View key={item} style={styles.specTag}>
+                <Text style={styles.specLabel}>{item}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Text style={styles.sectionTitle}>Languages Known</Text>
+          <View style={styles.specializations}>
+            {profile.languagesList.map(item => (
               <View key={item} style={styles.specTag}>
                 <Text style={styles.specLabel}>{item}</Text>
               </View>

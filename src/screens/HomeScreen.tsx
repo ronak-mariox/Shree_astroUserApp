@@ -184,7 +184,9 @@ export function HomeScreen({
                   style={styles.glassButton}
                 >
                   <BellIcon />
-                  <View style={styles.notificationDot} />
+                  {Boolean(home.data?.unreadNotifications) && (
+                    <View style={styles.notificationDot} />
+                  )}
                 </Pressable>
 
                 <Pressable

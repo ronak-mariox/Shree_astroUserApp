@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandGradient } from '../components/BrandGradient';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { CheckLargeIcon } from '../components/icons/CheckLargeIcon';
-import { confetti, receipt } from '../data/wallet';
+import { confetti, receipt as fallbackReceipt } from '../data/wallet';
 import {
   colors,
   hairline,
@@ -27,8 +27,18 @@ const CONFETTI_SIZE = 8;
 const CTA_HEIGHT = 53.992;
 const CARD_WIDTH = 341.993;
 
+export type Receipt = {
+  transactionId: string;
+  method: string;
+  dateTime: string;
+  previousBalance: string;
+  newBalance: string;
+};
+
 type PaymentSuccessScreenProps = {
   amount: number;
+  /** The real confirmTopUp result. Falls back to the design fixture when absent. */
+  receipt?: Receipt;
   onGoToWallet?: () => void;
   onBackToHome?: () => void;
 };
@@ -58,6 +68,7 @@ function ReceiptRow({
  */
 export function PaymentSuccessScreen({
   amount,
+  receipt = fallbackReceipt,
   onGoToWallet,
   onBackToHome,
 }: PaymentSuccessScreenProps) {
