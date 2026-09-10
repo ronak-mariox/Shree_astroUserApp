@@ -3,7 +3,7 @@ import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '../src/components/PrimaryButton';
-import { TextInput } from 'react-native';
+import { Animated, TextInput } from 'react-native';
 
 import { ConsultationRow } from '../src/components/ConsultationRow';
 import { DailyHoroscopeCard } from '../src/components/DailyHoroscopeCard';
@@ -20,8 +20,10 @@ import {
   DeclineChatDialog,
 } from '../src/components/AstrologerBusyDialog';
 import { ConnectingDialog } from '../src/components/ConnectingDialog';
+import { OptionPickerDialog } from '../src/components/OptionPickerDialog';
 import { WheelPickerDialog } from '../src/components/WheelPickerDialog';
 import { ChatIntakeScreen } from '../src/screens/ChatIntakeScreen';
+import { fireAstrologerLeft, fireAstrologerJoined, fireLowBalance, fireTick } from './helpers/apiMock';
 import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
 import { ComingSoonScreen } from '../src/screens/ComingSoonScreen';
 import { ConsultationHistoryScreen } from '../src/screens/ConsultationHistoryScreen';
@@ -260,6 +262,87 @@ test('birth details renders its fields and summary', async () => {
   expect(dump).toContain('Save & Continue →');
 });
 
+test('profile creation survives a back-step: initialProfile/initialPhoto pre-fill instead of starting blank', async () => {
+  const tree = await render(
+    <ProfileCreationScreen
+      initialProfile={{
+        fullName: 'Arjun Sharma',
+        email: 'arjun@example.com',
+        phoneNumber: '9876543210',
+        gender: 'male',
+      }}
+      initialPhoto={{ uri: 'file:///photo.jpg' }}
+    />,
+  );
+  const dump = JSON.stringify(tree.toJSON());
+  expect(dump).toContain('Arjun Sharma');
+  expect(dump).toContain('arjun@example.com');
+  expect(dump).toContain('9876543210');
+
+  const male = tree.root
+    .findAllByType(GenderSelector)[0]
+    .findAll(n => n.props.accessibilityRole === 'radio')[0];
+  expect(male.props.accessibilityState.selected).toBe(true);
+});
+
+test('birth details survives a back-step: initialDetails pre-fills instead of starting blank, and onBack reports the current fields', async () => {
+  const onBack = jest.fn();
+  const tree = await render(
+    <BirthDetailsScreen
+      onBack={onBack}
+      initialDetails={{
+        dateOfBirth: '15/08/1995',
+        timeOfBirth: '06:30 AM',
+        placeOfBirth: 'Mumbai, Maharashtra',
+        placeId: 'place:mumbai#0',
+      }}
+    />,
+  );
+  const dump = JSON.stringify(tree.toJSON());
+  expect(dump).toContain('15/08/1995');
+  expect(dump).toContain('06:30 AM');
+  expect(dump).toContain('Mumbai, Maharashtra');
+
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Go back').props.onPress();
+  });
+  expect(onBack).toHaveBeenCalledWith({
+    dateOfBirth: '15/08/1995',
+    timeOfBirth: '06:30 AM',
+    placeOfBirth: 'Mumbai, Maharashtra',
+    placeId: 'place:mumbai#0',
+  });
+});
+
+test('birth details hydrates from the account\'s saved details once they load, even if it mounted before that', async () => {
+  // Reached from the Kundli tab, App.tsx passes initialDetails derived from GET /users/me —
+  // fetched asynchronously in the app shell, so it can easily still be undefined at mount.
+  // Deliberately distinct from every static placeholder on the form ("15/08/1999", "06 : 30 AM",
+  // "Mumbai, Maharashtra"), so a match only ever means real hydration happened.
+  const tree = await render(<BirthDetailsScreen />);
+  let dump = JSON.stringify(tree.toJSON());
+  expect(dump).not.toContain('22/11/1998');
+
+  await ReactTestRenderer.act(() => {
+    tree.update(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <BirthDetailsScreen
+          initialDetails={{
+            dateOfBirth: '22/11/1998',
+            timeOfBirth: '02 : 30 PM',
+            placeOfBirth: 'Jaipur, Rajasthan',
+          }}
+        />
+      </SafeAreaProvider>,
+    );
+  });
+
+  dump = JSON.stringify(tree.toJSON());
+  expect(dump).toContain('22/11/1998');
+  expect(dump).toContain('02 : 30 PM');
+  expect(dump).toContain('Jaipur, Rajasthan');
+});
+
 test('home renders every section', async () => {
   const tree = await render(<HomeScreen />);
   const dump = JSON.stringify(tree.toJSON());
@@ -336,6 +419,23 @@ test('profile creation blocks Continue until every field is valid', async () => 
   );
 });
 
+test('profile creation stops accepting digits well past a real phone number', async () => {
+  const tree = await render(<ProfileCreationScreen />);
+  const phoneField = () => fieldNamed(tree, 'Phone Number');
+
+  // A bare number types in freely, right up to ten digits.
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('9876543210'));
+  expect(phoneField().props.value).toBe('9876543210');
+
+  // The +91 country code is also accepted — twelve digits total, same as validatePhone itself allows.
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('919876543210'));
+  expect(phoneField().props.value).toBe('919876543210');
+
+  // A thirteenth digit is refused outright — the field does not just wait for Continue to say so.
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('9198765432109'));
+  expect(phoneField().props.value).toBe('919876543210');
+});
+
 test('profile creation carries a picked photo through to Continue', async () => {
   const photo = { uri: 'file:///tmp/IMG_0042.heic', type: 'image/heic' };
   const onContinue = jest.fn();
@@ -372,7 +472,7 @@ test('profile creation carries a picked photo through to Continue', async () => 
   expect(onContinue).toHaveBeenCalledWith(expect.anything(), photo);
 });
 
-test('birth details rejects impossible dates and times', async () => {
+test('birth details rejects impossible dates and picks a well-formed time from its wheel', async () => {
   const onSave = jest.fn();
   const tree = await render(<BirthDetailsScreen onSave={onSave} />);
 
@@ -381,27 +481,35 @@ test('birth details rejects impossible dates and times', async () => {
 
   expect(onSave).not.toHaveBeenCalled();
   expect(textOf(tree)).toContain('Date of birth is required');
+  // Time of Birth is also a wheel now — nothing has been picked yet, so it's just as required.
+  expect(textOf(tree)).toContain('Time of birth is required');
 
-  // Date of Birth opens a wheel rather than taking typed text.
-  const dateWheel = () =>
+  // Date of Birth and Time of Birth both open a wheel rather than taking typed text.
+  const openWheel = () =>
     tree.root.findAllByType(WheelPickerDialog).filter(w => w.props.visible)[0];
   const pickDate = async (day: string, month: string, year: string) => {
     await ReactTestRenderer.act(() => {
       findPressable(tree, 'Date of Birth').props.onPress();
     });
     await ReactTestRenderer.act(() => {
-      dateWheel().props.onSubmit({ day, month, year });
+      openWheel().props.onSubmit({ day, month, year });
+    });
+  };
+  const pickTime = async (hour: string, minute: string, meridiem: string) => {
+    await ReactTestRenderer.act(() => {
+      findPressable(tree, 'Time of Birth').props.onPress();
+    });
+    await ReactTestRenderer.act(() => {
+      openWheel().props.onSubmit({ hour, minute, meridiem });
     });
   };
 
   await pickDate('31', 'Feb', '1999');
   await ReactTestRenderer.act(() => {
-    fieldNamed(tree, 'Time of Birth').props.onChangeText('25:00');
     fieldNamed(tree, 'Place of Birth').props.onChangeText('M');
   });
   let text = textOf(tree);
   expect(text).toContain('2/1999 has 28 days');
-  expect(text).toContain('Hour must be between 00 and 23');
   expect(text).toContain('Place of birth must be at least 2 characters');
 
   // The wheel's years run only to 2026, so the last day of that year stands
@@ -410,17 +518,67 @@ test('birth details rejects impossible dates and times', async () => {
   expect(textOf(tree)).toContain('Date of birth cannot be in the future');
 
   await pickDate('15', 'Aug', '1999');
+  await pickTime('06', '30', 'AM');
   await ReactTestRenderer.act(() => {
-    fieldNamed(tree, 'Time of Birth').props.onChangeText('06:30 AM');
     fieldNamed(tree, 'Place of Birth').props.onChangeText('Mumbai, Maharashtra');
   });
+  // A wheel can only ever land on a value it actually offers — "25:00" or "Hour 13" simply cannot be picked, unlike free-typed text.
+  expect(textOf(tree)).not.toContain('required');
   await ReactTestRenderer.act(save);
 
   expect(onSave).toHaveBeenCalledWith({
     dateOfBirth: '15/08/1999',
-    timeOfBirth: '06:30 AM',
+    timeOfBirth: '06 : 30 AM',
     placeOfBirth: 'Mumbai, Maharashtra',
   });
+});
+
+test('the wheel picker is a real scrolling list: settling on a row commits it, out-of-range clamps, and Submit hands back the current draft', async () => {
+  const YEARS = ['2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025'];
+  const ROW_HEIGHT = 56; // matches WheelPickerDialog's internal row height
+  const onSubmit = jest.fn();
+  const tree = await render(
+    <WheelPickerDialog
+      visible
+      title="Select Year"
+      columns={[{ key: 'year', values: YEARS }]}
+      value={{ year: '2020' }}
+      onCancel={() => {}}
+      onSubmit={onSubmit}
+    />,
+  );
+
+  // The outer wheel column carries the current selection as its own accessibility label,
+  // distinct from each row's "Select year <value>" tap target.
+  const selectedYear = () =>
+    tree.root.findAll(n => typeof n.props.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith('year '))[0]
+      .props.accessibilityLabel;
+  const yearList = () => tree.root.findAllByType(Animated.FlatList)[0];
+
+  expect(selectedYear()).toBe('year 2020');
+
+  // A flick that settles (momentum finishing) on row index 8 -> "2023" commits that value.
+  await ReactTestRenderer.act(() => {
+    yearList().props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { y: ROW_HEIGHT * 8 } } });
+  });
+  expect(selectedYear()).toBe('year 2023');
+
+  // A slow drag that never enters a momentum phase still commits via onScrollEndDrag.
+  await ReactTestRenderer.act(() => {
+    yearList().props.onScrollEndDrag({ nativeEvent: { contentOffset: { y: ROW_HEIGHT * 3 } } });
+  });
+  expect(selectedYear()).toBe('year 2018');
+
+  // An overshoot past the last row clamps to the last value instead of picking undefined.
+  await ReactTestRenderer.act(() => {
+    yearList().props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { y: ROW_HEIGHT * 999 } } });
+  });
+  expect(selectedYear()).toBe('year 2025');
+
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Submit').props.onPress();
+  });
+  expect(onSubmit).toHaveBeenCalledWith({ year: '2025' });
 });
 
 test('add money holds the CTA to the wallet limits', async () => {
@@ -627,7 +785,7 @@ test('the decline sheet confirms before dropping a chat request', async () => {
   expect(onDecline).toHaveBeenCalled();
 });
 
-test('the intake form collects the birth details and a chat window', async () => {
+test('the intake form requires every field before it will submit', async () => {
   const onConnect = jest.fn();
   const tree = await render(
     <ChatIntakeScreen astrologerName="Astro Ragini" onConnect={onConnect} />,
@@ -637,10 +795,17 @@ test('the intake form collects the birth details and a chat window', async () =>
   expect(text).toContain('Chat Intake Form');
   expect(text).toContain('Recent Chats');
   expect(text).toContain('Connect With Astro Ragini');
-  // The minute windows the flow books a session for.
-  for (const window of ['3 min', '5 min', '10 min', '15 min']) {
-    expect(text).toContain(window);
-  }
+  // The per-minute package/duration picker is gone — nothing left to book upfront.
+  expect(text).not.toContain('Chat Duration');
+  expect(text).not.toContain('3 min');
+
+  // Birth Place and Topic start empty — pressing Connect surfaces both as errors rather than silently proceeding.
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Connect With Astro Ragini').props.onPress();
+  });
+  expect(onConnect).not.toHaveBeenCalled();
+  expect(textOf(tree)).toContain('Birth place is required');
+  expect(textOf(tree)).toContain('Topic of concern is required');
 
   // The time field opens the wheel, and Submit writes it back.
   await ReactTestRenderer.act(() => {
@@ -661,29 +826,87 @@ test('the intake form collects the birth details and a chat window', async () =>
   });
   expect(textOf(tree)).toContain('07 : 15 AM');
 
+  const birthPlace = tree.root.findAll(
+    n => typeof n.type === 'string' && n.props.accessibilityLabel === 'Birth Place',
+  )[0];
   await ReactTestRenderer.act(() => {
-    findPressable(tree, '15 min').props.onPress();
+    birthPlace.props.onChangeText('Noida');
   });
+
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Topic of concern').props.onPress();
+  });
+  const topicDialog = tree.root
+    .findAllByType(OptionPickerDialog)
+    .filter(d => d.props.visible)[0];
+  await ReactTestRenderer.act(() => {
+    topicDialog.props.onSubmit('Career & Job');
+  });
+
   await ReactTestRenderer.act(() => {
     findPressable(tree, 'Connect With Astro Ragini').props.onPress();
   });
 
   expect(onConnect).toHaveBeenCalledWith(
-    expect.objectContaining({ timeOfBirth: '07 : 15 AM', minutes: 15 }),
+    expect.objectContaining({
+      timeOfBirth: '07 : 15 AM',
+      birthPlace: 'Noida',
+      topic: 'Career & Job',
+    }),
   );
+  // Every field is filled now, so its error clears on the successful resubmit.
+  expect(textOf(tree)).not.toContain('Birth place is required');
+  expect(textOf(tree)).not.toContain('Topic of concern is required');
+});
+
+test('birth details already on the profile are pre-filled and locked from editing', async () => {
+  const tree = await render(
+    <ChatIntakeScreen
+      astrologerName="Astro Ragini"
+      fullName="Priya Verma"
+      dateOfBirth="15 August 1999"
+      timeOfBirth="06 : 30 AM"
+    />,
+  );
+
+  const text = textOf(tree);
+  expect(text).toContain('15 August 1999');
+  expect(text).toContain('06 : 30 AM');
+
+  const fullNameInput = tree.root.findAll(
+    n => typeof n.type === 'string' && n.props.accessibilityLabel === 'Full Name',
+  )[0];
+  // A TextInput's value is a prop, not a text child, so it never shows up in textOf's walk.
+  expect(fullNameInput.props.value).toBe('Priya Verma');
+  expect(fullNameInput.props.editable).toBe(false);
+
+  expect(findPressable(tree, 'Date of Birth').props.disabled).toBe(true);
+  expect(findPressable(tree, 'Date of Birth').props.accessibilityState.disabled).toBe(true);
+  expect(findPressable(tree, 'Time of Birth').props.disabled).toBe(true);
+  expect(findPressable(tree, 'Time of Birth').props.accessibilityState.disabled).toBe(true);
+});
+
+test('birth details missing from the profile leave the field open, same as before', async () => {
+  const tree = await render(<ChatIntakeScreen astrologerName="Astro Ragini" />);
+
+  const fullNameInput = tree.root.findAll(
+    n => typeof n.type === 'string' && n.props.accessibilityLabel === 'Full Name',
+  )[0];
+  expect(fullNameInput.props.editable).toBe(true);
+
+  expect(findPressable(tree, 'Date of Birth').props.disabled).toBe(false);
+  expect(findPressable(tree, 'Time of Birth').props.disabled).toBe(false);
 });
 
 test('the connecting card counts its wait down and can be cancelled', async () => {
   jest.useFakeTimers();
   const onCancel = jest.fn();
-  const onConnected = jest.fn();
   const tree = await render(
     <ConnectingDialog
       visible
       name="Astro Roshni"
       seconds={2}
       onCancel={onCancel}
-      onConnected={onConnected}
     />,
   );
 
@@ -699,10 +922,13 @@ test('the connecting card counts its wait down and can be cancelled', async () =
   });
   expect(textOf(tree)).toContain('00:01');
 
+  // Reaching zero is just the display bottoming out — nothing here decides
+  // the card is done; that comes from outside, off however the request was
+  // actually answered.
   await ReactTestRenderer.act(() => {
     jest.advanceTimersByTime(1000);
   });
-  expect(onConnected).toHaveBeenCalled();
+  expect(textOf(tree)).toContain('00:00');
 
   await ReactTestRenderer.act(() => {
     findPressable(tree, 'Cancel the request').props.onPress();
@@ -716,20 +942,22 @@ test('the consultation room opens on the intake and sends a reply', async () => 
   const onEnd = jest.fn();
   const tree = await render(
     <ConsultationChatScreen
+      chatId="chat-1"
       astrologerName="Astro Rakesh"
-      walletBalance="₹ 1,250"
-      intakeLines={['Hi', 'Name: Mithu', 'POB: Delhi, India']}
       onEnd={onEnd}
     />,
   );
 
   let text = textOf(tree);
   expect(text).toContain('Astro Rakesh');
-  expect(text).toContain('₹ 1,250');
-  // What the intake filed opens the conversation, then the greeting.
+  // The wallet pill reads the real balance, from services/api.ts's fetchWallet.
+  expect(text).toContain('₹1,250');
+  // The seeker's own intake opens the conversation — requestChat posts it as
+  // the transcript's first message, delivered here the same way as any other
+  // (see the subscribeToConsultation mock in helpers/apiMock.ts).
   expect(text).toContain('Name: Mithu');
-  expect(text).toContain('Astro Rakesh will join within 10 second');
-  // The header counts the session up from zero.
+  // The header counts the session up from zero — services/api.ts's getChatState
+  // is what actually supplies startedAt, so this is that mock's own clock.
   expect(text).toContain('(00:00 mins)');
 
   await ReactTestRenderer.act(() => {
@@ -795,6 +1023,138 @@ test('the consultation room opens on the intake and sends a reply', async () => 
   jest.useRealTimers();
 });
 
+test('the astrologer disconnecting and reconnecting shows as a system line, not an alert', async () => {
+  const tree = await render(
+    <ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />,
+  );
+
+  await ReactTestRenderer.act(() => {
+    fireAstrologerLeft({ chatId: 'chat-1', reconnectSeconds: 60 });
+  });
+  expect(textOf(tree)).toContain(
+    'Astro Rakesh disconnected. Waiting up to 60s for them to reconnect…',
+  );
+
+  await ReactTestRenderer.act(() => {
+    fireAstrologerJoined({ chatId: 'chat-1' });
+  });
+  expect(textOf(tree)).toContain('Astro Rakesh is back.');
+});
+
+test('low balance shows a banner (not an alert), and Recharge opens the popup through to a real top-up', async () => {
+  const tree = await render(
+    <ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />,
+  );
+
+  await ReactTestRenderer.act(() => {
+    fireLowBalance({ chatId: 'chat-1', exhausted: false, minutesRemaining: 1, balanceRemaining: 40 });
+  });
+  let text = textOf(tree);
+  expect(text).toContain('Low Balance:');
+  // The payload's own balanceRemaining is pushed straight into wallet state — no reload round-trip needed.
+  expect(text).toContain('40');
+  expect(text).toContain('₹40');
+
+  // While the banner is up, the composer can't send — the seeker has to recharge first.
+  const send = () => findPressable(tree, 'Send');
+  const input = () =>
+    tree.root.findAll(
+      n => typeof n.type === 'string' && n.props.accessibilityLabel === 'Type message',
+    )[0];
+  await ReactTestRenderer.act(() => {
+    input().props.onChangeText('Still here?');
+  });
+  expect(send().props.disabled).toBe(true);
+  expect(input().props.editable).toBe(false);
+
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, 'Recharge wallet').props.onPress();
+  });
+  text = textOf(tree);
+  expect(text).toContain('Recharge Now');
+  expect(text).toContain("Don't let low balance interrupt your chat");
+  // services/api.ts's getChatState mock rate (₹20/min) — the popup's own minimum-to-continue line.
+  expect(text).toContain('Minimum balance need to talk is');
+  expect(text).toContain('₹ 20');
+  // The ₹500 tile is selected by default (Figma's "Most Popular").
+  expect(text).toContain('★ Most Popular');
+  expect(text).toContain("You'll get");
+  expect(text).toContain('₹ 750');
+  expect(text).toContain('on the recharge of');
+  expect(text).toContain('Total Amount');
+  expect(text).toContain('₹ 590');
+
+  // A cheaper tile recomputes the whole breakdown.
+  await ReactTestRenderer.act(() => {
+    findPressable(tree, '₹100, get ₹50 extra').props.onPress();
+  });
+  text = textOf(tree);
+  expect(text).toContain('You\'ll get');
+  expect(text).toContain('₹ 150');
+  expect(text).toContain('on the recharge of');
+  expect(text).toContain('₹ 100');
+  expect(text).toContain('GST (18%)');
+  expect(text).toContain('₹ 18');
+  expect(text).toContain('₹ 118');
+
+  await ReactTestRenderer.act(async () => {
+    await findPressable(tree, 'Pay Now').props.onPress();
+  });
+  // services/api.ts's startTopUp/confirmTopUp mocks resolve immediately — the popup and banner both close once the credit lands.
+  expect(textOf(tree)).not.toContain('Recharge Now');
+  expect(textOf(tree)).not.toContain('Low Balance:');
+
+  // A normal tick on its own also clears a standing low-balance banner, and its own balanceRemaining lands on the wallet pill.
+  await ReactTestRenderer.act(() => {
+    fireLowBalance({ chatId: 'chat-1', exhausted: true, graceSeconds: 15 });
+  });
+  expect(textOf(tree)).toContain('Low Balance:');
+  await ReactTestRenderer.act(() => {
+    fireTick({ minutesBilled: 3, minutesRemaining: 10, balanceRemaining: 980 });
+  });
+  expect(textOf(tree)).not.toContain('Low Balance:');
+  expect(textOf(tree)).toContain('₹980');
+  // Balance is fine again, so the composer is usable once more (the earlier "Still here?" draft was never sent).
+  expect(findPressable(tree, 'Send').props.disabled).toBe(false);
+});
+
+test('an actual balance pause freezes the running clock, and a resume picks it back up', async () => {
+  jest.useFakeTimers();
+  const tree = await render(
+    <ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />,
+  );
+
+  await ReactTestRenderer.act(() => {
+    jest.advanceTimersByTime(5000);
+  });
+  expect(textOf(tree)).toContain('(00:05 mins)');
+
+  // The real cutoff pauses the session — not just a warning, the clock itself stops.
+  await ReactTestRenderer.act(() => {
+    fireLowBalance({ chatId: 'chat-1', exhausted: true, paused: true, balanceRemaining: 0 });
+  });
+  expect(textOf(tree)).toContain('Low Balance:');
+
+  await ReactTestRenderer.act(() => {
+    jest.advanceTimersByTime(10000);
+  });
+  expect(textOf(tree)).toContain('(00:05 mins)');
+  expect(findPressable(tree, 'Send').props.disabled).toBe(true);
+
+  // A top-up resumes it (chat.service.js's resumePausedSessionsForUser announces this the same way, paused: false).
+  await ReactTestRenderer.act(() => {
+    fireLowBalance({ chatId: 'chat-1', exhausted: false, paused: false, balanceRemaining: 40 });
+  });
+  expect(textOf(tree)).not.toContain('Low Balance:');
+
+  await ReactTestRenderer.act(() => {
+    jest.advanceTimersByTime(3000);
+  });
+  // Only the 3 seconds since resuming count — the 10 paused seconds never did.
+  expect(textOf(tree)).toContain('(00:08 mins)');
+  jest.useRealTimers();
+});
+
 test('kundli renders the stored birth details', async () => {
   const tree = await render(<KundliScreen />);
   const dump = JSON.stringify(tree.toJSON());
@@ -848,8 +1208,13 @@ test('send stays disabled until the draft has content, then posts it', async () 
   });
   expect(sendState(tree)).toBe(false);
 
-  await ReactTestRenderer.act(() => {
+  // Posting is now a real (mocked) askAi() round trip — one more act() pass
+  // lets that promise, and the reply it appends, settle before asserting.
+  await ReactTestRenderer.act(async () => {
     findPressable(tree, 'Send').props.onPress();
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
   });
 
   expect(JSON.stringify(tree.toJSON())).toContain(
@@ -870,8 +1235,11 @@ test('tapping a suggested prompt appends it to the transcript', async () => {
       n.props.children?.props?.children === prompt,
   )[0];
 
-  await ReactTestRenderer.act(() => {
+  await ReactTestRenderer.act(async () => {
     chip.props.onPress();
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
   });
 
   // Once as the chip, once as the posted message.
@@ -879,31 +1247,24 @@ test('tapping a suggested prompt appends it to the transcript', async () => {
   expect(dump.split(prompt)).toHaveLength(3);
 });
 
-test('generated kundli renders every analysis block', async () => {
-  const tree = await render(<KundliResultScreen />);
+test('generated kundli renders the chart, key positions, planetary table and dasha', async () => {
+  const tree = await render(<KundliResultScreen profileId="profile-1" />);
   const dump = JSON.stringify(tree.toJSON());
 
-  // Chart: house numbers, planet abbreviations and the native's details.
-  expect(dump).toContain('Arjun');
-  expect(dump).toContain('15 Aug 1995');
-  expect(dump).toContain('Mumbai');
-  expect(dump).toContain('As');
-  expect(dump).toContain('Ke');
-
   expect(dump).toContain('Key Positions');
-  expect(dump).toContain('Sagittarius');
+  expect(dump).toContain('Cancer');
   expect(dump).toContain('Planetary Positions');
   expect(dump).toContain('Debilitated');
   expect(dump).toContain('Vimshottari Dasha');
   expect(dump).toContain('Current & Upcoming Mahadasha');
+  expect(dump).toContain('Venus Dasha');
   expect(dump).toContain('CURRENT');
-  expect(dump).toContain('Yogas in Chart');
-  expect(dump).toContain('Kemadruma Yoga');
-  expect(dump).toContain('Challenging');
   expect(dump).toContain('Planetary Strength (Shadbala)');
-  expect(dump).toContain('91%');
+  expect(dump).toContain('116%');
   expect(dump).toContain('Recommended Remedies');
-  expect(dump).toContain('Vishnu Sahasranama');
+  expect(dump).toContain('Nakshatra Pujan');
+  expect(dump).toContain('Yellow Sapphire');
+  expect(dump).toContain('Thursday');
   expect(dump).toContain('Deep Astrology Analysis');
 
   const tabs = findTabs(tree);
@@ -911,7 +1272,7 @@ test('generated kundli renders every analysis block', async () => {
 });
 
 test('astrology analysis switches between its three readings', async () => {
-  const tree = await render(<AstrologyAnalysisScreen />);
+  const tree = await render(<AstrologyAnalysisScreen profileId="profile-1" />);
   const segments = () =>
     tree.root.findAll(
       n =>
@@ -924,30 +1285,29 @@ test('astrology analysis switches between its three readings', async () => {
   let dump = JSON.stringify(tree.toJSON());
   expect(dump).toContain('Astrology Analysis');
   expect(dump).toContain('Mahadasha (Major Periods)');
+  expect(dump).toContain('Venus Dasha');
   expect(dump).toContain('ACTIVE');
-  expect(dump).toContain('8 yrs 5 mo');
-  expect(dump).toContain('Antardasha (Sub-periods)');
-  expect(dump).toContain('Jupiter–Ketu');
+  expect(dump).toContain('Antardasha (Sub-periods of the current Mahadasha)');
+  expect(dump).toContain('Saturn');
   expect(segments()[0].props.accessibilityState.selected).toBe(true);
 
   await ReactTestRenderer.act(() => {
     segments()[1].props.onPress();
   });
   dump = JSON.stringify(tree.toJSON());
-  expect(dump).toContain('Gaja Kesari Yoga');
-  expect(dump).toContain('Beneficial');
-  expect(dump).toContain('Challenging');
+  expect(dump).toContain('Yoga analysis is coming soon.');
   expect(dump).not.toContain('Mahadasha (Major Periods)');
 
   await ReactTestRenderer.act(() => {
     segments()[2].props.onPress();
   });
   dump = JSON.stringify(tree.toJSON());
-  expect(dump).toContain('Mangal Dosha');
+  expect(dump).toContain('Kaal Sarp Dosha');
+  expect(dump).toContain('Sade Sati');
   expect(dump).toContain('Present');
   expect(dump).toContain('Absent');
-  expect(dump).toContain('Moderate');
-  expect(dump).not.toContain('Gaja Kesari Yoga');
+  expect(dump).toContain('Middle Phase');
+  expect(dump).not.toContain('Yoga analysis is coming soon.');
 });
 
 test('wallet renders balance, quick add, totals and the ledger', async () => {
@@ -1063,6 +1423,31 @@ test('profile renders the account, stats and menu', async () => {
   expect(tabs[4].props.accessibilityState.selected).toBe(true);
 });
 
+test('profile shows the real rashi — the Moon sign, not a Sun sign or the design fixture', async () => {
+  const treeWithRashi = await render(
+    <ProfileScreen
+      user={{ name: 'Priya Nair', email: 'priya@example.com' }}
+      profile={{
+        zodiac: { moonSign: 'Cancer' },
+        birthDetails: { dateOfBirth: '1998-04-02T00:00:00.000Z', place: { formatted: 'Pune, Maharashtra' } },
+        wallet: { balance: 500 },
+        stats: { consultations: 2, kundlis: 1 },
+      }}
+    />,
+  );
+  const textWithRashi = textOf(treeWithRashi);
+  expect(textWithRashi).toContain('Cancer');
+  expect(textWithRashi).toContain('Pune, Maharashtra');
+  // Never the dummy fixture's Sun sign once a real profile is on hand.
+  expect(textWithRashi).not.toContain('Leo · 15 Aug 1995 · Mumbai');
+
+  // A real profile whose rashi hasn't resolved yet (birth details still pending) — never a fallback to a Sun sign either.
+  const treeWithoutRashi = await render(
+    <ProfileScreen user={{ name: 'Priya Nair', email: 'priya@example.com' }} profile={{}} />,
+  );
+  expect(textOf(treeWithoutRashi)).toContain('Your rashi will appear here soon');
+});
+
 test('the selected Profile tab is green, not black', async () => {
   const tree = await render(<ProfileScreen />);
   const label = tree.root
@@ -1084,6 +1469,36 @@ test('edit profile prefills the stored details', async () => {
   const values = tree.root.findAllByType(TextInput).map(i => i.props.value);
   expect(values).toContain('Arjun Sharma');
   expect(values).toContain('Mumbai, Maharashtra');
+});
+
+test('edit profile hydrates once the real account loads, even if it mounted before that', async () => {
+  // The app shell renders this screen before GET /users/me necessarily resolves —
+  // `initial` starts undefined and arrives a tick later.
+  const tree = await render(<EditProfileScreen />);
+  expect(tree.root.findAllByType(TextInput).map(i => i.props.value)).toContain('Arjun Sharma');
+
+  await ReactTestRenderer.act(() => {
+    tree.update(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <EditProfileScreen
+          initial={{
+            fullName: 'Priya Verma',
+            email: 'priya@example.com',
+            phone: '9998887776',
+            dateOfBirth: '02/02/1992',
+            timeOfBirth: '11:15 PM',
+            placeOfBirth: 'Pune, Maharashtra',
+            gender: 'female',
+          }}
+        />
+      </SafeAreaProvider>,
+    );
+  });
+
+  const values = tree.root.findAllByType(TextInput).map(i => i.props.value);
+  expect(values).toContain('Priya Verma');
+  expect(values).toContain('Pune, Maharashtra');
+  expect(values).not.toContain('Arjun Sharma');
 });
 
 test('transaction history filters by direction', async () => {
@@ -1257,6 +1672,8 @@ test('astrologer detail renders every section', async () => {
   expect(text).toContain('18 Years');
   expect(text).toContain('2K Mins');
   expect(text).toContain('₹20/min');
+  // A struck-through "was" ₹10 over the real rate sits beside it, same as the listing card.
+  expect(text).toContain('₹30/min');
   expect(text).toContain('Follow');
   expect(text).toContain('Astro Media');
   /** The Specialization section lists the astrologer's own declared expertise. */
@@ -1324,6 +1741,8 @@ test('the detail screen prints the astrologer it was handed', async () => {
   expect(text).toContain('Tarot');
   expect(text).toContain('12 Years');
   expect(text).toContain('₹15/min');
+  // A struck-through "was" ₹10 over the real rate sits beside it, same as the listing card.
+  expect(text).toContain('₹25/min');
   expect(text).toContain('Chat Now');
 });
 
@@ -1361,10 +1780,13 @@ test('available astrologers renders and filters by category', async () => {
   expect(text).toContain('Numerology');
   expect(text).toContain('18 Yrs');
   expect(text).toContain('4,820');
-  expect(text).toContain('Free');
+  // The real rate always shows — no "Free" tag.
   expect(text).toContain('₹20/min');
-  expect(text).toContain('Free');
   expect(text).toContain('₹15/min');
+  // A struck-through "was" ₹10 over the real rate sits beside it.
+  expect(text).toContain('₹30/min');
+  expect(text).toContain('₹25/min');
+  expect(text).not.toContain('Free');
 
   // Education narrows to the one astrologer tagged with it.
   const tabs = tree.root.findAll(

@@ -222,8 +222,10 @@ export function AvailableAstrologersScreen({
       orders: row.consultations.toLocaleString('en-IN'),
       /** A busy astrologer shows a countdown where the button would be. */
       wait: row.busy && row.waitSeconds ? `Wait ${Math.ceil(row.waitSeconds / 60)} min` : undefined,
-      was: service ? `₹${service.was}/min` : '',
-      now: row.freeMinutes > 0 ? 'Free' : service ? `₹${service.now}/min` : '—',
+      /** A struck-through "was" ₹10 above the real rate — cosmetic, not the backend's own (usually equal) was/now pair, which never shows a discount today. */
+      was: service ? `₹${service.now + 10}/min` : '',
+      /** No astrologer is ever marked "Free" here — the real rate always shows, whatever free minutes they carry. */
+      now: service ? `₹${service.now}/min` : '—',
     };
   });
 
@@ -544,14 +546,7 @@ function AstrologerCard({
         </View>
 
         <Label style={styles.was}>{astrologer.was}</Label>
-        <Label
-          style={[
-            styles.now,
-            astrologer.now === 'Free' ? styles.nowFree : styles.nowPaid,
-          ]}
-        >
-          {astrologer.now}
-        </Label>
+        <Label style={styles.now}>{astrologer.now}</Label>
 
         <Pressable
           accessibilityRole="button"
@@ -921,24 +916,20 @@ function createStyles(scale: number) {
       lineHeight: px(18),
       color: consultPalette.wait,
     },
+    /** The struck-through "was" beside the real price — see the field's own comment on why it's ₹10 over, not the API's own was/now. */
     was: {
       fontFamily: fontFamily.regular,
       fontSize: px(12),
       lineHeight: px(18),
       color: consultPalette.wait,
       textDecorationLine: 'line-through',
-      /** 117 to 174 — the new price starts on its own mark, not after it. */
+      /** 117 to 174 — the real price starts on its own mark, not after it. */
       width: px(57),
     },
     now: {
       fontFamily: fontFamily.medium,
       fontSize: px(16),
       lineHeight: px(21),
-    },
-    nowFree: {
-      color: consultPalette.free,
-    },
-    nowPaid: {
       color: colors.border.strong,
     },
 

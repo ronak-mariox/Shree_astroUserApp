@@ -15,7 +15,6 @@ export const consultPalette = {
   chipBorder: '#C4C4C4',
   chipIdleText: '#959595',
   wait: '#FF0C0C',
-  free: '#14A50E',
   banner: '#7FD66F',
   callAccent: '#F65C02',
   callBorder: 'rgba(246, 92, 2, 0.4)',
@@ -104,7 +103,7 @@ export type ConsultAstrologer = {
   wait?: string;
   /** Struck-through list price. */
   was: string;
-  /** What the seeker actually pays — "Free" while free minutes remain. */
+  /** What the seeker actually pays, after any offer discount. */
   now: string;
 };
 

@@ -93,11 +93,11 @@ export function HomeScreen({
   const me = home.data?.profile;
   const balance = home.data?.wallet.balance ?? 0;
 
-  /** The zodiac line under the name, once birth details are on file. */
-  const zodiacLine = me?.sunSign
-    ? `${me.sunSign}${me.dateOfBirth ? ` · ${api.shortDate(me.dateOfBirth)}` : ''}`
-    : 'Add your birth details';
-  const ZodiacGlyph = me?.sunSign ? ZODIAC_ICONS[me.sunSign] : undefined;
+  /** The rashi line under the name, once the real Moon sign has resolved (see services/user.service.js's enrichZodiacFromBirthDetails on the backend). */
+  const zodiacLine = me?.moonSign
+    ? `${me.moonSign}${me.dateOfBirth ? ` · ${api.shortDate(me.dateOfBirth)}` : ''}`
+    : 'Your rashi will appear here soon';
+  const ZodiacGlyph = me?.moonSign ? ZODIAC_ICONS[me.moonSign] : undefined;
 
   /** Directory cards, in the shape the carousel draws. */
   const astrologers = (directory.data?.items ?? []).map(row => ({
@@ -156,7 +156,7 @@ export function HomeScreen({
                 <Text style={styles.greeting}>✦ Namaste</Text>
                 <Text style={styles.name}>{me?.name ?? ''}</Text>
                 <View style={styles.zodiacRow}>
-                  {me?.sunSign &&
+                  {me?.moonSign &&
                     (ZodiacGlyph ? (
                       <ZodiacGlyph size={px(12)} />
                     ) : (

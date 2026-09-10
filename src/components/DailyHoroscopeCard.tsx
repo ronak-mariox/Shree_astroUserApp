@@ -27,12 +27,10 @@ type DailyHoroscopeCardProps = {
 /** Today's reading with its three highlights (Figma node 180:88974). */
 export function DailyHoroscopeCard({ horoscope, onPress }: DailyHoroscopeCardProps) {
   const title = 'Daily Horoscope';
-  const meta = horoscope
-    ? `${horoscope.sign} · Today`
-    : 'Add your birth details to see yours';
+  const meta = horoscope ? `${horoscope.sign} · Today` : 'Your rashi is on its way';
   const reading =
     horoscope?.reading ??
-    'Save your date, time and place of birth and today’s reading appears here.';
+    'We’re working out your rashi from your birth details — check back shortly for today’s reading.';
   const stats = horoscope
     ? [
         { label: 'Lucky #', value: String(horoscope.luckyNumber) },

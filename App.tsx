@@ -13,7 +13,22 @@ import type { BirthDetails } from './src/screens/BirthDetailsScreen';
 import type { Profile } from './src/screens/ProfileCreationScreen';
 import type { Receipt } from './src/screens/PaymentSuccessScreen';
 import { register, signOut, type AuthSession, type PhotoAsset } from './src/services/auth';
-import { confirmTopUp, fetchProfile, rupees, saveProfile, startTopUp } from './src/services/api';
+import {
+  cancelChat,
+  confirmTopUp,
+  connectLiveUpdates,
+  createBirthProfile,
+  disconnectLiveUpdates,
+  fetchProfile,
+  getChatState,
+  precheckSession,
+  requestChat,
+  rupees,
+  saveProfile,
+  startTopUp,
+  subscribeToRequest,
+  type Intake,
+} from './src/services/api';
 import { ApiError } from './src/services/client';
 import { paymentMethods, type PaymentMethodId } from './src/data/wallet';
 import {
@@ -22,6 +37,11 @@ import {
   updateUser,
   type Session,
 } from './src/services/session';
+import {
+  clearKundliProfileId,
+  restoreKundliProfileId,
+  saveKundliProfileId,
+} from './src/services/kundliProfile';
 import { colors } from './src/theme';
 import { pickProfilePhoto } from './src/services/photoPicker';
 import type { AstrologerSummary } from './src/data/astrologerProfile';
@@ -41,10 +61,9 @@ import {
   DeclineChatDialog,
 } from './src/components/AstrologerBusyDialog';
 import { ConnectingDialog } from './src/components/ConnectingDialog';
-import { intakeSummary, waitSeconds } from './src/data/chatIntake';
-import { wallet } from './src/data/wallet';
+import { formatBirthDateFromIso, intakeSummary, topicSlugFor, type ChatIntake } from './src/data/chatIntake';
 import { FindAstrologersScreen } from './src/screens/FindAstrologersScreen';
-import { BirthDetailsScreen } from './src/screens/BirthDetailsScreen';
+import { BirthDetailsScreen, formatTimeForDisplay } from './src/screens/BirthDetailsScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { KundliResultScreen } from './src/screens/KundliResultScreen';
 import { KundliScreen } from './src/screens/KundliScreen';
@@ -109,6 +128,19 @@ const TAB_ROUTES: Partial<Record<TabKey, Route>> = {
   profile: 'profile',
 };
 
+/** The intake form's own shape -> what POST /chats expects (services/api.ts's `Intake`). */
+const toApiIntake = (intake: ChatIntake): Intake => ({
+  topic: topicSlugFor(intake.topic),
+  summary: intakeSummary(intake).join('\n'),
+  birthDetails: {
+    fullName: intake.fullName,
+    gender: intake.gender,
+    dateOfBirth: intake.dateOfBirth,
+    timeOfBirth: intake.timeOfBirth,
+    place: { formatted: intake.birthPlace },
+  },
+});
+
 /**
  * Routes reachable without a session: everything up to signing in or
  * registering, plus the coming-soon screen (its Google/Apple buttons are
@@ -139,6 +171,20 @@ function dobFromIso(value?: string): string {
   const day = String(date.getUTCDate()).padStart(2, '0');
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${day}/${month}/${date.getUTCFullYear()}`;
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "1999-08-15T00:00:00.000Z" -> "15 Aug 1999" — the kundli chart's centre label. Same UTC-field care as dobFromIso. */
+function prettyDobFromIso(value?: string): string {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return `${date.getUTCDate()} ${SHORT_MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }
 
 function App() {
@@ -173,6 +219,48 @@ function App() {
   /** Where the notifications / history screens were pushed from. */
   const [pushedOrigin, setPushedOrigin] = useState<Route>('profile');
   /**
+   * The signed-in user's own generated kundli — persisted on-device (see
+   * services/kundliProfile.ts) so Generate Kundli only ever calls
+   * POST /birth-profiles once per birth per device; every screen after that
+   * reads from GET /kundli/:profileId..., which is cache-backed and free.
+   */
+  const [kundliProfileId, setKundliProfileId] = useState<string>();
+  /** Birth Details is reached from sign-up and from the Kundli tab; each Back goes to a different place. */
+  const [birthDetailsOrigin, setBirthDetailsOrigin] = useState<Route>('profileCreation');
+  /** Whatever was on screen in Birth Details the last time it was left via Back, unfinished — so re-entering it (e.g. after backing up to Create Profile and returning) doesn't start from blank fields. */
+  const [birthDetailsDraft, setBirthDetailsDraft] = useState<BirthDetails>();
+  /**
+   * What the account already has on file, in the form's own shapes —
+   * undefined for a brand-new sign-up (no birthDetails yet), populated for an
+   * existing user opening Birth Details fresh from the Kundli tab. `placeId`
+   * is never set here: a saved profile only ever has the typed place text
+   * (see backend/models/common.js's birthPlaceSchema), never a resolved
+   * /places/search id, so "Generate Kundli" still needs the place re-picked
+   * from the dropdown even though its text is already filled in.
+   */
+  const profileBirthDetails: BirthDetails | undefined = profile?.birthDetails?.dateOfBirth
+    ? {
+        dateOfBirth: dobFromIso(profile.birthDetails.dateOfBirth),
+        timeOfBirth: profile.birthDetails.timeOfBirth
+          ? formatTimeForDisplay(profile.birthDetails.timeOfBirth)
+          : '',
+        placeOfBirth: profile.birthDetails.place?.formatted ?? '',
+      }
+    : undefined;
+  /**
+   * The same birth details, in the chat intake form's own display shape
+   * ("15 August 1999" rather than Birth Details' "15/08/1999") — so a chat
+   * request casts against the exact birth details already on file instead of
+   * whatever the form's fixture defaults happen to be.
+   */
+  const chatIntakeProfile = {
+    fullName: profile?.name ?? session?.user.name ?? '',
+    dateOfBirth: formatBirthDateFromIso(profile?.birthDetails?.dateOfBirth),
+    timeOfBirth: profile?.birthDetails?.timeOfBirth
+      ? formatTimeForDisplay(profile.birthDetails.timeOfBirth)
+      : '',
+  };
+  /**
    * The chat request in flight: who it is for, whether they are still counting
    * down a wait, and where the flow was entered from.
    */
@@ -189,8 +277,12 @@ function App() {
   const [declining, setDeclining] = useState(false);
   /** Seconds left on the request, so declining "No" resumes where it paused. */
   const [waitLeft, setWaitLeft] = useState(0);
-  /** The birth details the intake filed, opening the conversation. */
-  const [intakeLines, setIntakeLines] = useState<ReadonlyArray<string>>();
+  /**
+   * The chat POST /chats created: set once "Connect With …" asks for it,
+   * kept once the astrologer accepts, and cleared only once the session is
+   * fully done with (ended and left, or the request itself fell through).
+   */
+  const [requestedChatId, setRequestedChatId] = useState<string>();
   /**
    * What Create Profile collected. Registration is one request at the end of
    * the wizard, so step one is held here until birth details are saved.
@@ -206,6 +298,10 @@ function App() {
    */
   useEffect(() => {
     let live = true;
+
+    restoreKundliProfileId().then(id => {
+      if (live) setKundliProfileId(id ?? undefined);
+    });
 
     restoreSession().then(restored => {
       if (!live) {
@@ -241,7 +337,20 @@ function App() {
     () =>
       onSessionChange(next => {
         setSession(next);
-        if (!next) {
+        if (next) {
+          /** Live chat ticks, messages, and request answers all arrive over this. */
+          connectLiveUpdates();
+        } else {
+          disconnectLiveUpdates();
+          /**
+           * A kundli belongs to one account, not to the device — cleared here
+           * rather than only on the Logout button, so a forced sign-out (an
+           * expired refresh token, say) can never leave the next account to
+           * sign in on this device looking at a `hasKundli: true` that was
+           * really the previous account's.
+           */
+          clearKundliProfileId();
+          setKundliProfileId(undefined);
           setRoute(current => (current === 'restoring' ? current : 'welcome'));
         }
       }),
@@ -302,7 +411,12 @@ function App() {
     setRoute(signedIn.user.profileComplete !== false ? 'home' : 'editProfile');
   };
 
-  /** Clears the keystore first, so "logged out" is true before it is drawn. */
+  /**
+   * Clears the keystore first, so "logged out" is true before it is drawn.
+   * `signOut()` ends the session, which the `onSessionChange` listener above
+   * turns into the rest of sign-out — clearing the kundli pointer included —
+   * the same way it does for a forced sign-out.
+   */
   const handleLogout = async () => {
     await signOut();
     setRoute('welcome');
@@ -403,6 +517,39 @@ function App() {
     setRoute('home');
   };
 
+  /**
+   * Generating calls the real backend — `details.placeId` is guaranteed set by
+   * the time this runs (BirthDetailsScreen refuses to call it otherwise), so
+   * lat/lon come from that geocode, never from the typed text. The same birth
+   * is cached server-side, so this is safe to call again later without
+   * spending another credit; the id is kept on-device purely so it usually
+   * doesn't have to be called again at all.
+   *
+   * Reachable from sign-up too (this screen shows "Generate Kundli" right
+   * alongside "Save & Continue"), where there is no account — and therefore
+   * no auth token — yet. Registering first, exactly like Save & Continue
+   * does, is what makes the call after it authenticated instead of a 401.
+   */
+  const generateKundli = async (details: BirthDetails) => {
+    if (!details.placeId) {
+      return;
+    }
+    if (signUp) {
+      await register({ profile: signUp.profile, birth: details, photo: signUp.photo });
+      setSignUp(undefined);
+    }
+    const created = await createBirthProfile({
+      fullName: signUp?.profile.fullName ?? profile?.name ?? session?.user.name ?? '',
+      gender: signUp?.profile.gender ?? profile?.gender,
+      dateOfBirth: details.dateOfBirth,
+      timeOfBirth: details.timeOfBirth,
+      placeId: details.placeId,
+    });
+    setKundliProfileId(created.id);
+    await saveKundliProfileId(created.id);
+    setRoute('kundliResult');
+  };
+
   /** Screens reachable from more than one place go back where they came from. */
   const push = (next: Route, from: Route) => {
     setPushedOrigin(from);
@@ -435,9 +582,14 @@ function App() {
   /**
    * A chat starts one of two ways: an astrologer still counting down a wait
    * asks whether to hold on (Figma node 180:162837), and a free one goes
-   * straight to the intake form (node 180:93411).
+   * straight to the intake form (node 180:93411) — but only once the seeker's
+   * balance is actually enough to open one, checked here before the form is
+   * even shown so a "you need more balance" never comes as a surprise after
+   * it has been filled in. Mirrors POST /chats' own check exactly (see
+   * services/chat.service.js's precheckSession), so nothing shown here can
+   * disagree with what "Connect With …" is about to do.
    */
-  const startChat = (
+  const startChat = async (
     from: Route,
     target: {
       /** Who the request goes to. */
@@ -453,8 +605,127 @@ function App() {
       setBusyShown(true);
       return;
     }
+
+    try {
+      const check = await precheckSession(target.id, 'chat');
+      if (!check.astrologerAvailable) {
+        setBusyShown(true);
+        return;
+      }
+      if (!check.ok) {
+        const minuteWord = check.minSessionMinutes === 1 ? 'minute' : 'minutes';
+        Alert.alert(
+          'Insufficient Balance',
+          `You need at least ${rupees(check.shortfallAmount)} more in your wallet to start this chat (minimum ${check.minSessionMinutes} ${minuteWord}). Please recharge your wallet to continue.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Recharge Wallet', onPress: () => setRoute('addMoney') },
+          ],
+        );
+        return;
+      }
+    } catch {
+      /** The check itself is a courtesy — "Connect With …" makes the exact same call for real and will refuse there if something is actually wrong. */
+    }
+
     setRoute('chatIntake');
   };
+
+  /**
+   * "Connect With …" on the intake form: asks the astrologer for a chat, then
+   * waits on the connecting card for them to answer.
+   *
+   * `startChat`'s own precheck above already tries to catch a short wallet
+   * before the form is even shown, but that check is only a courtesy (it
+   * swallows its own failures) and can still go stale between then and now —
+   * a race with something else spending the balance, or simply a slow typist.
+   * This is the request that actually matters, so an insufficient-balance
+   * refusal here gets its own dedicated popup with a way to fix it right
+   * away, not just a dismissible error.
+   */
+  const connectChat = async (intake: ChatIntake) => {
+    if (!chatWith) {
+      return;
+    }
+
+    try {
+      const request = await requestChat(chatWith.id, toApiIntake(intake), 'chat');
+      setRequestedChatId(request.chatId);
+      setWaitLeft(request.expiresInSeconds);
+      setConnecting(true);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'insufficient_balance') {
+        Alert.alert(
+          'Insufficient Balance',
+          'You have insufficient funds to start this consultation. Please recharge your wallet to continue.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Recharge Wallet', onPress: () => setRoute('addMoney') },
+          ],
+        );
+        return;
+      }
+      Alert.alert(
+        'Could not start chat',
+        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      );
+    }
+  };
+
+  /**
+   * While the connecting card is up, find out how the astrologer answered.
+   * The socket event is the fast path; the poll alongside it is only a
+   * backstop for a dropped connection — it reads the same server state the
+   * event would have carried, never a client guess, so the two can never
+   * disagree about what "answered" means.
+   */
+  useEffect(() => {
+    if (!connecting || !requestedChatId) {
+      return;
+    }
+
+    const chatId = requestedChatId;
+
+    const settle = (next: Route) => {
+      setConnecting(false);
+      setRequestedChatId(current => (current === chatId ? undefined : current));
+      setRoute(next);
+    };
+
+    const unsubscribe = subscribeToRequest(chatId, {
+      onAccepted: () => {
+        setConnecting(false);
+        setRoute('consultationChat');
+      },
+      onRejected: reason => {
+        Alert.alert('Request declined', reason || `${chatWith?.name ?? 'The astrologer'} is not available right now.`);
+        settle(chatOrigin);
+      },
+      onMissed: () => {
+        Alert.alert('No answer', `${chatWith?.name ?? 'The astrologer'} did not respond in time.`);
+        settle(chatOrigin);
+      },
+    });
+
+    const poll = setInterval(async () => {
+      try {
+        const state = await getChatState(chatId);
+        if (state.status === 'active') {
+          setConnecting(false);
+          setRoute('consultationChat');
+        } else if (state.status !== 'requested') {
+          settle(chatOrigin);
+        }
+      } catch {
+        /** Transient — the next poll, or the socket event, will catch up. */
+      }
+    }, 5000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(poll);
+    };
+  }, [connecting, requestedChatId, chatOrigin, chatWith?.name]);
 
   /** Call is still the same promise wherever it is pressed. */
   const startCall = (from: Route, name?: string) =>
@@ -540,17 +811,24 @@ function App() {
         <ProfileCreationScreen
           onContinue={(profile, photo) => {
             setSignUp({ profile, photo });
+            setBirthDetailsOrigin('profileCreation');
             setRoute('birthDetails');
           }}
           onPickPhoto={pickProfilePhoto}
+          initialProfile={signUp?.profile}
+          initialPhoto={signUp?.photo}
         />
       )}
 
       {route === 'birthDetails' && (
         <BirthDetailsScreen
-          onBack={() => setRoute('profileCreation')}
+          onBack={details => {
+            setBirthDetailsDraft(details);
+            setRoute(birthDetailsOrigin);
+          }}
           onSave={saveBirthDetails}
-          onGenerateKundli={() => setRoute('kundli')}
+          onGenerateKundli={generateKundli}
+          initialDetails={birthDetailsDraft ?? profileBirthDetails}
         />
       )}
 
@@ -813,30 +1091,69 @@ function App() {
           activeTab="kundli"
           onSelectTab={selectTab}
           onBack={() => setRoute('home')}
-          onEditBirthDetails={() => setRoute('birthDetails')}
-          onGenerateKundli={() => setRoute('kundliResult')}
+          birthDetails={
+            profile && [
+              { label: 'Name', value: profile.name ?? session?.user.name ?? '—' },
+              { label: 'Date', value: dobFromIso(profile.birthDetails?.dateOfBirth) || '—' },
+              { label: 'Time', value: profile.birthDetails?.timeOfBirth || '—' },
+              { label: 'Place', value: profile.birthDetails?.place?.formatted || '—' },
+            ]
+          }
+          hasKundli={Boolean(kundliProfileId)}
+          onEditBirthDetails={() => {
+            /**
+             * `birthDetailsDraft` remembers an unsaved edit from the sign-up
+             * wizard's own back-step (Birth Details -> Create Profile ->
+             * back) — irrelevant here, and worse, would otherwise WIN over
+             * `profileBirthDetails` below even when it's just an empty
+             * object left over from an earlier, unrelated visit (`??` only
+             * falls through on null/undefined, not on "has no real data").
+             * Clearing it is what lets the account's real saved details
+             * show through instead.
+             */
+            setBirthDetailsDraft(undefined);
+            setBirthDetailsOrigin('kundli');
+            setRoute('birthDetails');
+          }}
+          onGenerateKundli={() => {
+            /** Already generated on this device — view it, at no extra cost, rather than asking the birth details again. */
+            if (kundliProfileId) {
+              setRoute('kundliResult');
+              return;
+            }
+            setBirthDetailsDraft(undefined);
+            setBirthDetailsOrigin('kundli');
+            setRoute('birthDetails');
+          }}
         />
       )}
 
-      {route === 'kundliResult' && (
+      {route === 'kundliResult' && kundliProfileId && (
         <KundliResultScreen
+          profileId={kundliProfileId}
           activeTab="kundli"
           onSelectTab={selectTab}
           onBack={() => setRoute('kundli')}
           onDeepAnalysis={() => setRoute('astrologyAnalysis')}
+          native={
+            profile && {
+              name: (profile.name ?? session?.user.name ?? '').split(' ')[0] || '',
+              date: prettyDobFromIso(profile.birthDetails?.dateOfBirth),
+              place: profile.birthDetails?.place?.city || profile.birthDetails?.place?.formatted || '',
+            }
+          }
         />
       )}
 
       {route === 'chatIntake' && (
         <ChatIntakeScreen
           astrologerName={chatWith?.name ?? 'your astrologer'}
+          fullName={chatIntakeProfile.fullName || undefined}
+          dateOfBirth={chatIntakeProfile.dateOfBirth || undefined}
+          timeOfBirth={chatIntakeProfile.timeOfBirth || undefined}
           onBack={() => setRoute(chatOrigin)}
           onMyOrders={() => push('pushedConsultations', 'chatIntake')}
-          onConnect={intake => {
-            setIntakeLines(intakeSummary(intake));
-            setWaitLeft(waitSeconds(chatWith?.wait));
-            setConnecting(true);
-          }}
+          onConnect={connectChat}
         />
       )}
 
@@ -855,7 +1172,12 @@ function App() {
         onDismiss={() => setBusyShown(false)}
       />
 
-      {/* Raised by the form's "Connect With …" button. */}
+      {/*
+       * Raised once "Connect With …" has asked the astrologer for a chat.
+       * `seconds`/`onTick` are cosmetic — the countdown they draw is just how
+       * long the request is allowed to sit unanswered; what actually ends the
+       * wait is one of the three events the effect above listens for.
+       */}
       <ConnectingDialog
         visible={connecting}
         name={chatWith?.name ?? 'your astrologer'}
@@ -867,10 +1189,6 @@ function App() {
           setDeclining(true);
         }}
         onTick={setWaitLeft}
-        onConnected={() => {
-          setConnecting(false);
-          setRoute('consultationChat');
-        }}
       />
 
       {/* The cross under the connecting card asks before dropping the request. */}
@@ -883,19 +1201,35 @@ function App() {
         onDecline={() => {
           setDeclining(false);
           setConnecting(false);
+          if (requestedChatId) {
+            const cancelledChatId = requestedChatId;
+            setRequestedChatId(undefined);
+            cancelChat(cancelledChatId).catch(() => {
+              /** Nothing the seeker can do about it — the server ages the request out on its own either way. */
+            });
+          }
           setRoute(chatOrigin);
         }}
         onDismiss={() => setDeclining(false)}
       />
 
-      {route === 'consultationChat' && (
+      {route === 'consultationChat' && requestedChatId && (
         <ConsultationChatScreen
+          chatId={requestedChatId}
           astrologerName={chatWith?.name ?? 'your astrologer'}
           photo={chatWith?.photo}
-          walletBalance={wallet.balance}
-          intakeLines={intakeLines}
-          onWalletPress={() => push('wallet', 'consultationChat')}
-          onEnd={() => setRoute(chatOrigin)}
+          onEnd={() => {
+            setRequestedChatId(undefined);
+            setRoute(chatOrigin);
+          }}
+          onStartNewChat={() => {
+            setRequestedChatId(undefined);
+            if (chatWith) {
+              startChat(chatOrigin, chatWith);
+            } else {
+              setRoute(chatOrigin);
+            }
+          }}
         />
       )}
 
@@ -909,8 +1243,9 @@ function App() {
         />
       )}
 
-      {route === 'astrologyAnalysis' && (
+      {route === 'astrologyAnalysis' && kundliProfileId && (
         <AstrologyAnalysisScreen
+          profileId={kundliProfileId}
           onSelectTab={selectTab}
           onBack={() => setRoute('kundliResult')}
         />

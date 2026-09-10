@@ -74,6 +74,20 @@ export const colors = {
     debitTintBorderStrong: 'rgba(239, 68, 68, 0.2)',
   },
 
+  /** The live consultation's low-balance banner and its recharge popup (Figma nodes 180:144988, 180:148242). */
+  recharge: {
+    /** The banner itself. */
+    banner: '#E54646',
+    /** The selected amount tile's border and warm background wash. */
+    selected: '#FBE825',
+    selectedTintFrom: '#FFFCDA',
+    selectedTintTo: '#FFFAC6',
+    /** The "Get ₹X Extra" strip along the bottom of every tile. */
+    bonusStripFrom: '#EBC654',
+    bonusStripVia: '#FEF18B',
+    bonusStripTo: '#E9C555',
+  },
+
   text: {
     /** Headings. */
     primary: '#1F2937',

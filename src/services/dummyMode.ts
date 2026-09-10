@@ -53,3 +53,29 @@ export const USE_DUMMY_ASTROLOGERS = false;
  * verified against, the real backend, independently of `USE_DUMMY_DATA`.
  */
 export const USE_DUMMY_NOTIFICATIONS = false;
+
+/**
+ * Kundli generation — /places/search, POST /birth-profiles, and the four
+ * GET /kundli/:profileId... reads in services/api.ts — is wired to, and
+ * verified against, the real backend, independently of `USE_DUMMY_DATA`.
+ * Unrelated to `fetchKundlis`/`saveKundli`/`deleteKundli` above, which stay on
+ * the older `/users/me/kundlis` list and its own `USE_DUMMY_DATA` gate.
+ */
+export const USE_DUMMY_KUNDLI = false;
+
+/**
+ * Consultation History (`fetchConsultations` in services/api.ts, reached from
+ * the Profile menu, Home's "view all", and Chat Intake's "My Orders") is
+ * wired to, and verified against, the real backend, independently of
+ * `USE_DUMMY_DATA`.
+ */
+export const USE_DUMMY_CONSULTATIONS = false;
+
+/**
+ * The AI Astrology assistant (`AiAstrologyChatScreen`, and
+ * `fetchAiThread`/`askAi` in services/api.ts) is wired to, and verified
+ * against, the real backend, independently of `USE_DUMMY_DATA` — the backend
+ * side (chart-grounded replies, tools, rolling memory) is real now, not the
+ * canned holding reply it used to be.
+ */
+export const USE_DUMMY_AI_ASSISTANT = false;

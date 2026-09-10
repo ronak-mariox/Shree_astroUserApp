@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { birthDetails } from '../data/home';
+import { birthDetails as birthDetailsFixture } from '../data/home';
 import {
   colors,
   designFrame,
@@ -34,6 +34,10 @@ type KundliScreenProps = {
   onGenerateKundli?: () => void;
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
+  /** The signed-in account's own details; falls back to the design fixture when not yet loaded. */
+  birthDetails?: ReadonlyArray<{ label: string; value: string }>;
+  /** True once a kundli already exists for this account — the CTA reads "View" instead of "Generate". */
+  hasKundli?: boolean;
 };
 
 /**
@@ -46,6 +50,8 @@ export function KundliScreen({
   onGenerateKundli,
   activeTab = 'kundli',
   onSelectTab,
+  birthDetails = birthDetailsFixture,
+  hasKundli = false,
 }: KundliScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -102,7 +108,7 @@ export function KundliScreen({
           </View>
 
           <PrimaryButton
-            label="Generate Kundli"
+            label={hasKundli ? 'View Kundli' : 'Generate Kundli'}
             labelStyle={typography.buttonLarge}
             style={styles.cta}
             onPress={onGenerateKundli}

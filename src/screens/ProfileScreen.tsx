@@ -72,7 +72,8 @@ type ProfileScreenProps = {
    * `user` above.
    */
   profile?: {
-    zodiac?: { sunSign?: string };
+    /** The rashi — Moon sign, not Sun sign; see services/user.service.js's enrichZodiacFromBirthDetails on the backend. */
+    zodiac?: { moonSign?: string };
     birthDetails?: { dateOfBirth?: string; place?: { formatted?: string } };
     wallet?: { balance?: number };
     stats?: { consultations?: number; kundlis?: number };
@@ -99,13 +100,15 @@ export function ProfileScreen({
 
   const name = user?.name || account.name;
   const email = user?.email || account.email;
-  const sunSign = profile?.zodiac?.sunSign || account.sunSign;
-  const ZodiacGlyph = ZODIAC_ICONS[sunSign] ?? ZODIAC_ICONS[account.sunSign];
+  /** The rashi — the real Moon sign, once the backend has resolved it (services/user.service.js's enrichZodiacFromBirthDetails), same source HomeScreen reads. Never the design fixture's dummy sign once a real profile is on hand. */
+  const moonSign = profile?.zodiac?.moonSign;
+  const ZodiacGlyph = profile ? (moonSign ? ZODIAC_ICONS[moonSign] : undefined) : ZODIAC_ICONS[account.sunSign];
   const birthPlace = profile?.birthDetails?.place?.formatted;
-  const identityLine =
-    profile?.birthDetails?.dateOfBirth && birthPlace
-      ? `${sunSign} · ${shortDate(profile.birthDetails.dateOfBirth)} · ${birthPlace}`
-      : account.identityLine;
+  const identityLine = profile
+    ? moonSign && profile.birthDetails?.dateOfBirth && birthPlace
+      ? `${moonSign} · ${shortDate(profile.birthDetails.dateOfBirth)} · ${birthPlace}`
+      : 'Your rashi will appear here soon'
+    : account.identityLine;
   const stats = profile
     ? [
         { value: rupees(profile.wallet?.balance ?? 0), label: 'Wallet' },

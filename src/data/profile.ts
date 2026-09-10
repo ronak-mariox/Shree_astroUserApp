@@ -110,21 +110,6 @@ export const consultationFilters: ReadonlyArray<{
   { key: 'voice', label: 'Voice' },
 ];
 
-export const consultationHistory: ReadonlyArray<{
-  id: string;
-  astrologer: string;
-  photo: ImageSourcePropType;
-  topic: string;
-  timestamp: string;
-  amount: string;
-  duration: string;
-  channel: Channel;
-}> = [
-  { id: 'c-1', astrologer: 'Pt. Rajesh Sharma', photo: require('../assets/images/astrologer-rajesh.png'), topic: 'Career & Finance', timestamp: '12 Jul 2026 · 11:00 AM', amount: '-₹640', duration: '32 min', channel: 'chat' },
-  { id: 'c-2', astrologer: 'Kavita Joshi', photo: require('../assets/images/astrologer-kavita.png'), topic: 'Marriage & Relationships', timestamp: '8 Jul 2026 · 3:30 PM', amount: '-₹270', duration: '18 min', channel: 'voice' },
-  { id: 'c-3', astrologer: 'Dr. Suresh Patel', photo: require('../assets/images/astrologer-suresh.jpg'), topic: 'Vastu & Property', timestamp: '1 Jul 2026 · 10:00 AM', amount: '-₹375', duration: '25 min', channel: 'chat' },
-  { id: 'c-4', astrologer: 'Guru Prakash Das', photo: require('../assets/images/astro-guru.jpg'), topic: 'General Kundli Analysis', timestamp: '20 Jun 2026 · 8:00 AM', amount: '-₹420', duration: '12 min', channel: 'voice' },
-];
 
 /** Tint behind a notification's glyph, keyed by what the alert is about. */
 export type NotificationTint = 'warm' | 'lilac' | 'mint';

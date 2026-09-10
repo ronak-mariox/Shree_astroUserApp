@@ -47,7 +47,6 @@ export const DUMMY_ASTROLOGERS = [
     consultations: 5400,
     badges: ['top-choice', 'most-trusted'],
     rates: { chat: { was: 25, now: 20 }, call: { was: 35, now: 30 } },
-    freeMinutes: 3,
     about:
       'Vedic astrologer with 15+ years reading horoscopes for career, marriage and finance. Known for direct, practical guidance rather than vague predictions.',
     gallery: [] as string[],
@@ -70,7 +69,6 @@ export const DUMMY_ASTROLOGERS = [
     consultations: 3100,
     badges: ['rising-star'],
     rates: { chat: { was: 18, now: 15 }, call: { was: 28, now: 25 } },
-    freeMinutes: 3,
     about:
       'Tarot reader and face-reading practitioner focused on relationships and family matters. Warm, conversational sessions.',
     gallery: [] as string[],
@@ -93,7 +91,6 @@ export const DUMMY_ASTROLOGERS = [
     consultations: 9200,
     badges: ['celebrity', 'most-trusted'],
     rates: { chat: { was: 40, now: 35 }, call: { was: 55, now: 50 } },
-    freeMinutes: 0,
     about:
       'Senior Vedic astrologer and Vastu consultant with over two decades of experience guiding families on wealth, property and auspicious timing.',
     gallery: [] as string[],
@@ -116,7 +113,6 @@ export const DUMMY_ASTROLOGERS = [
     consultations: 1900,
     badges: [] as string[],
     rates: { chat: { was: 15, now: 12 }, call: { was: 22, now: 20 } },
-    freeMinutes: 5,
     about:
       'Numerologist and palmistry consultant helping students and professionals pick the right path forward.',
     gallery: [] as string[],
@@ -139,7 +135,6 @@ export const DUMMY_ASTROLOGERS = [
     consultations: 6800,
     badges: ['top-choice'],
     rates: { chat: { was: 30, now: 28 }, call: { was: 45, now: 42 } },
-    freeMinutes: 0,
     about:
       'KP and Vedic astrologer specialising in matchmaking and marriage timing, consulted by families across three generations.',
     gallery: [] as string[],
@@ -162,7 +157,6 @@ export const DUMMY_ASTROLOGERS = [
     consultations: 1200,
     badges: ['rising-star'],
     rates: { chat: { was: 12, now: 10 }, call: { was: 18, now: 16 } },
-    freeMinutes: 3,
     about:
       'Young tarot and Vedic astrologer with a growing following for quick, honest readings on love and wellbeing.',
     gallery: [] as string[],
@@ -181,7 +175,7 @@ export const DUMMY_HOME = {
   profile: {
     name: DUMMY_USER.name,
     avatarUrl: DUMMY_USER.avatarUrl,
-    sunSign: DUMMY_USER.sunSign,
+    moonSign: DUMMY_USER.sunSign,
     dateOfBirth: DUMMY_USER.dateOfBirth,
   },
   wallet: { balance: 1250, currency: 'INR' },
@@ -206,7 +200,6 @@ export const DUMMY_HOME = {
       { glyph: '♄', name: 'Saturn', sign: 'Aquarius' },
     ],
   },
-  freeConsultation: { isUsed: false, minutes: 3 },
   unreadNotifications: 2,
   recentConsultations: [
     {
@@ -470,15 +463,6 @@ export const DUMMY_NOTIFICATIONS = [
     readAt: undefined as string | undefined,
   },
   {
-    id: 'notif-3',
-    type: 'promotion',
-    title: 'Free minutes waiting',
-    body: 'You still have 3 free minutes on your first chat consultation.',
-    action: { screen: 'findAstrologers', id: undefined as string | undefined },
-    createdAt: daysAgo(6),
-    readAt: daysAgo(5),
-  },
-  {
     id: 'notif-4',
     type: 'system',
     title: 'Welcome to Shree Astro',
@@ -504,7 +488,6 @@ export const DUMMY_SETTINGS = {
   minRecharge: 100,
   maxRecharge: 50000,
   minPayout: 500,
-  freeTrialMinutes: 3,
   features: { chat: true, call: false, aiAstrology: true, kundli: true },
   appVersions: { ios: '1.0.0', android: '1.0.0' },
   supportEmail: 'support@shreeastro.com',

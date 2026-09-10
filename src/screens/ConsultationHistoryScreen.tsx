@@ -14,11 +14,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
-import {
-  consultationFilters,
-  consultationHistory,
-  type Channel,
-} from '../data/profile';
+import { consultationFilters, type Channel } from '../data/profile';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { portraitOf } from '../utils/images';
 import {
   colors,
   designFrame,
@@ -55,7 +54,10 @@ export function ConsultationHistoryScreen({
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<Filter>('all');
 
-  const sessions = consultationHistory.filter(
+  /** Only completed sessions — the card always shows a "✓ Completed" badge, so this keeps that honest. */
+  const history = useApi(() => api.fetchConsultations('ended'), []);
+
+  const sessions = (history.data ?? []).filter(
     session => filter === 'all' || session.channel === filter,
   );
 
@@ -117,6 +119,13 @@ export function ConsultationHistoryScreen({
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
       >
+        {history.loading && !history.data && (
+          <Text style={styles.empty}>Loading…</Text>
+        )}
+        {!history.loading && sessions.length === 0 && (
+          <Text style={styles.empty}>No consultations yet.</Text>
+        )}
+
         {sessions.map(session => {
           const chat = session.channel === 'chat';
 
@@ -130,7 +139,7 @@ export function ConsultationHistoryScreen({
                     to={colors.gradient.avatarFrom}
                   />
                   <Image
-                    source={session.photo}
+                    source={portraitOf(session.photo)}
                     style={styles.avatarImage}
                     resizeMode="cover"
                   />
@@ -240,6 +249,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.section,
     gap: spacing.md,
+  },
+  empty: {
+    ...typography.caption,
+    color: colors.text.muted,
+    textAlign: 'center',
+    paddingTop: spacing.xl,
   },
   card: {
     borderRadius: radius.card,

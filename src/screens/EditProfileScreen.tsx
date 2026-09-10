@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -135,6 +135,30 @@ export function EditProfileScreen({
   const [saveError, setSaveError] = useState<string>();
   /** Whether the Date of Birth wheel is open. */
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  /**
+   * `useState(initial?.fullName ?? account.name)` above only reads `initial`
+   * on the very first render — the real profile (`GET /users/me`) is fetched
+   * asynchronously in the app shell, so if this screen is reached before that
+   * resolves, every field would otherwise lock onto the design fixture
+   * forever, even after the real data arrives a moment later. This hydrates
+   * the form once real data shows up — guarded so it never fires again after
+   * that (a fresh `initial` object identity on every parent render would
+   * otherwise wipe out whatever the user is mid-typing).
+   */
+  const hydrated = useRef(Boolean(initial));
+  useEffect(() => {
+    if (hydrated.current || !initial) {
+      return;
+    }
+    hydrated.current = true;
+    setFullName(initial.fullName);
+    setEmail(initial.email);
+    setDateOfBirth(initial.dateOfBirth);
+    setTimeOfBirth(initial.timeOfBirth);
+    setPlaceOfBirth(initial.placeOfBirth);
+    setGender(initial.gender ?? 'male');
+  }, [initial]);
 
   const errors: Record<string, FieldError> = {
     fullName: validateName(fullName),

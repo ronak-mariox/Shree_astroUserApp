@@ -12,6 +12,7 @@
  */
 
 import { client } from './client';
+import { formatBirthDateFromIso, formatBirthTimeFromHHmm } from '../data/chatIntake';
 import {
   DUMMY_AI_THREAD,
   DUMMY_ASTROLOGERS,
@@ -29,13 +30,24 @@ import {
   nextTicketReference,
 } from './dummyData';
 import {
+  USE_DUMMY_AI_ASSISTANT,
   USE_DUMMY_ASTROLOGERS,
   USE_DUMMY_AUTH,
+  USE_DUMMY_CONSULTATIONS,
   USE_DUMMY_DATA,
   USE_DUMMY_HOME,
+  USE_DUMMY_KUNDLI,
   USE_DUMMY_NOTIFICATIONS,
   USE_DUMMY_WALLET,
 } from './dummyMode';
+import {
+  connectSocket,
+  disconnectSocket,
+  joinChatRoom,
+  sendChatMessage,
+  subscribeToChat,
+  subscribeToChatRequest,
+} from './socket';
 
 /* -------------------------------------------------------------------------- */
 /* Translating between the API's ids and the screens' words                   */
@@ -104,7 +116,8 @@ export const timeAgo = (value?: string) => {
 /* -------------------------------------------------------------------------- */
 
 export type Home = {
-  profile: { name: string; avatarUrl?: string; sunSign?: string; dateOfBirth?: string };
+  /** `moonSign` — the real Vedic rashi, resolved from the birth details on file, not a Western Sun sign. Undefined until that resolves (or if it never could). */
+  profile: { name: string; avatarUrl?: string; moonSign?: string; dateOfBirth?: string };
   wallet: { balance: number; currency: string };
   horoscope: {
     sign: string;
@@ -114,7 +127,6 @@ export type Home = {
     energy: string;
   } | null;
   planetPositions: { date: string; planets: Array<{ glyph: string; name: string; sign: string }> };
-  freeConsultation: { isUsed: boolean; minutes: number };
   unreadNotifications: number;
   recentConsultations: Array<{
     id: string;
@@ -162,7 +174,6 @@ export type DirectoryCard = {
     chat: { was: number; now: number } | null;
     call: { was: number; now: number } | null;
   };
-  freeMinutes: number;
 };
 
 export type DirectoryFilters = {
@@ -375,6 +386,148 @@ export async function deleteKundli(kundliId: string) {
   await client.delete(`/users/me/kundlis/${kundliId}`);
 }
 
+/* ------------------------------------------------------ kundli generation */
+
+/** One /places/search result. `id` must be echoed back verbatim as `placeId` — the backend resolves lat/lon from it and never trusts a typed value. */
+export type PlaceSuggestion = {
+  id: string;
+  formatted: string;
+  city: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+};
+
+/** Geocode suggestions as the user types a birth place. AstrologyAPI itself refuses anything under 3 characters. */
+export async function searchPlaces(query: string): Promise<PlaceSuggestion[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 3) return [];
+  if (USE_DUMMY_KUNDLI) {
+    return [
+      { id: 'dummy-place#0', formatted: `${trimmed}, IN`, city: trimmed, country: 'IN', latitude: 19.076, longitude: 72.8777, timezone: 'Asia/Kolkata' },
+    ];
+  }
+  const { data } = await client.get('/places/search', { params: { q: trimmed } });
+  return data.items ?? [];
+}
+
+export type BirthProfileInput = {
+  fullName: string;
+  gender?: string;
+  label?: string;
+  relation?: string;
+  /** "DD/MM/YYYY" */
+  dateOfBirth: string;
+  /** "HH:MM AM/PM" or 24-hour "HH:MM" */
+  timeOfBirth: string;
+  /** From a PlaceSuggestion's `id` — never raw coordinates. */
+  placeId: string;
+};
+
+/** Creates a birth profile and generates its kundli (a 12-call batch server-side, cached — a repeat for the same birth costs nothing). */
+export async function createBirthProfile(input: BirthProfileInput): Promise<{ id: string; status: string }> {
+  if (USE_DUMMY_KUNDLI) return { id: 'dummy-profile-1', status: 'ready' };
+  const { data } = await client.post('/birth-profiles', input);
+  return data;
+}
+
+export type KeyPosition = { label: string; sign: string };
+export type PlanetPosition = {
+  planet: string;
+  sign: string;
+  house: number;
+  isRetrograde: boolean;
+  nakshatra?: string;
+  nakshatraLord?: string;
+  dignity?: 'Own Sign' | 'Neutral' | 'Debilitated' | 'Exalted';
+};
+export type KundliOverview = {
+  profileId: string;
+  status: string;
+  chart: { url: string };
+  lagna: string;
+  nakshatra?: string;
+  keyPositions: KeyPosition[];
+  planetaryPositions: PlanetPosition[];
+};
+
+/** GET /kundli/:profileId — chart, key positions, planetary table. Served from cache whenever it's already been fetched once; only a genuine miss spends a credit. */
+export async function fetchKundliOverview(profileId: string): Promise<KundliOverview> {
+  if (USE_DUMMY_KUNDLI) {
+    return {
+      profileId,
+      status: 'ready',
+      chart: { url: '' },
+      lagna: 'Cancer',
+      nakshatra: 'Revati',
+      keyPositions: [
+        { label: 'Lagna', sign: 'Cancer' },
+        { label: 'Sun', sign: 'Cancer' },
+        { label: 'Moon', sign: 'Pisces' },
+        { label: 'Mars', sign: 'Virgo' },
+        { label: 'Mercury', sign: 'Leo' },
+        { label: 'Jupiter', sign: 'Scorpio' },
+      ],
+      planetaryPositions: [],
+    };
+  }
+  const { data } = await client.get(`/kundli/${profileId}`);
+  return data;
+}
+
+export type DashaPeriod = { lord: string; start: string; end: string; current?: boolean };
+export type KundliDasha = { profileId: string; mahadasha: DashaPeriod[]; currentAntardasha: DashaPeriod[] };
+
+/** GET /kundli/:profileId/dasha — mahadasha list + the currently running antardasha. */
+export async function fetchKundliDasha(profileId: string): Promise<KundliDasha> {
+  if (USE_DUMMY_KUNDLI) return { profileId, mahadasha: [], currentAntardasha: [] };
+  const { data } = await client.get(`/kundli/${profileId}/dasha`);
+  return data;
+}
+
+/** GET /kundli/:profileId/dasha/:lord — lazy: only fetched (and only ever billed) the first time this specific lord is asked for. */
+export async function fetchKundliAntardasha(profileId: string, lord: string): Promise<{ profileId: string; lord: string; antardasha: DashaPeriod[] }> {
+  if (USE_DUMMY_KUNDLI) return { profileId, lord, antardasha: [] };
+  const { data } = await client.get(`/kundli/${profileId}/dasha/${lord}`);
+  return data;
+}
+
+export type Dosha = { name: string; present: boolean; severity?: string; description: string };
+
+/** GET /kundli/:profileId/doshas — kaal sarp, sade sati, pitra. */
+export async function fetchKundliDoshas(profileId: string): Promise<{ profileId: string; doshas: Dosha[] }> {
+  if (USE_DUMMY_KUNDLI) return { profileId, doshas: [] };
+  const { data } = await client.get(`/kundli/${profileId}/doshas`);
+  return data;
+}
+
+/** One graha's Shadbala reading. `percentage` is real and can exceed 100 — it's percent of that planet's own classical minimum, not a 0-100 ceiling. */
+export type PlanetStrength = { planet: string; symbol: string; percentage: number; rupas?: number };
+
+/** GET /kundli/:profileId/strength — Shadbala, Sun through Saturn. */
+export async function fetchKundliStrength(profileId: string): Promise<{ profileId: string; strength: PlanetStrength[] }> {
+  if (USE_DUMMY_KUNDLI) return { profileId, strength: [] };
+  const { data } = await client.get(`/kundli/${profileId}/strength`);
+  return data;
+}
+
+/** A gemstone or puja/chant suggestion. `frequency`/`planet` are only ever set on a gemstone entry — the puja endpoint carries neither. */
+export type Remedy = {
+  type: 'puja' | 'gemstone';
+  title: string;
+  description: string;
+  frequency?: string;
+  planet?: string;
+};
+
+/** GET /kundli/:profileId/remedies — gemstone + puja suggestions, merged into one list. */
+export async function fetchKundliRemedies(profileId: string): Promise<{ profileId: string; remedies: Remedy[] }> {
+  if (USE_DUMMY_KUNDLI) return { profileId, remedies: [] };
+  const { data } = await client.get(`/kundli/${profileId}/remedies`);
+  return data;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Wallet                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -490,6 +643,8 @@ export type Intake = {
   topic: string;
   question?: string;
   minutes?: number;
+  /** The intake form's own answers, pre-rendered exactly as the seeker's screen shows them — posted as the transcript's opening message, so the astrologer sees the same thing without the server having to reformat stored birth details back into prose. */
+  summary?: string;
   birthDetails?: {
     fullName?: string;
     gender?: string;
@@ -499,16 +654,44 @@ export type Intake = {
   };
 };
 
+/**
+ * Is the seeker's balance enough to start a chat with this astrologer, and
+ * for how many minutes? Creates nothing — safe to call just from opening the
+ * intake form, so "you need more balance" can be shown before they fill it in.
+ */
+export async function precheckSession(astrologerId: string, channel = 'chat') {
+  if (USE_DUMMY_CONSULTATIONS) {
+    const astrologer = DUMMY_ASTROLOGERS.find(row => row.id === astrologerId);
+    const rate = (channel === 'call' ? astrologer?.rates.call : astrologer?.rates.chat)?.now ?? 0;
+    return {
+      ok: true,
+      astrologerAvailable: !astrologer?.busy,
+      ratePerMinute: rate,
+      minSessionMinutes: 1,
+      minutesAffordable: 999,
+      shortfallAmount: 0,
+    };
+  }
+  const { data } = await client.post('/chats/precheck', { astrologerId, channel });
+  return data as {
+    ok: boolean;
+    astrologerAvailable: boolean;
+    ratePerMinute: number;
+    minSessionMinutes: number;
+    minutesAffordable: number;
+    shortfallAmount: number;
+  };
+}
+
 /** Asks an astrologer for a chat. The rate is fixed at this moment. */
 export async function requestChat(astrologerId: string, intake: Intake, channel = 'chat') {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_CONSULTATIONS) {
     const astrologer = DUMMY_ASTROLOGERS.find(row => row.id === astrologerId);
     const service = channel === 'call' ? astrologer?.rates.call : astrologer?.rates.chat;
     return {
       chatId: `chat-${Date.now()}`,
       status: astrologer?.busy ? 'requested' : 'active',
       ratePerMinute: service?.now ?? 0,
-      freeMinutes: astrologer?.freeMinutes ?? 0,
       expiresInSeconds: 90,
     };
   }
@@ -517,19 +700,18 @@ export async function requestChat(astrologerId: string, intake: Intake, channel 
     chatId: string;
     status: string;
     ratePerMinute: number;
-    freeMinutes: number;
     expiresInSeconds: number;
   };
 }
 
 export async function cancelChat(chatId: string) {
-  if (USE_DUMMY_DATA) return { chatId, status: 'cancelled' };
+  if (USE_DUMMY_CONSULTATIONS) return { chatId, status: 'cancelled' };
   const { data } = await client.post(`/chats/${chatId}/cancel`, {});
   return data;
 }
 
 export async function endChat(chatId: string, reason?: string) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_CONSULTATIONS) {
     return { chatId, status: 'ended', durationSeconds: 0, amountCharged: 0 };
   }
   const { data } = await client.post(`/chats/${chatId}/end`, { reason });
@@ -541,9 +723,53 @@ export async function endChat(chatId: string, reason?: string) {
   };
 }
 
+/** One session's live state — status, the frozen rate, and (while active) server-computed minutes still affordable. What a screen loads on open and reconnect; never computed client-side. */
+export async function getChatState(chatId: string) {
+  if (USE_DUMMY_CONSULTATIONS) {
+    return {
+      chatId,
+      role: 'user' as const,
+      channel: 'chat',
+      status: 'active',
+      startedAt: new Date().toISOString(),
+      ratePerMinute: 0,
+      minutesBilled: 0,
+      amountCharged: 0,
+      minutesRemaining: 999,
+    };
+  }
+  const { data } = await client.get(`/chats/${chatId}`);
+  return data as {
+    chatId: string;
+    role: 'user' | 'astrologer';
+    channel: string;
+    status: string;
+    startedAt?: string;
+    ratePerMinute: number;
+    minutesBilled: number;
+    amountCharged: number;
+    minutesRemaining?: number;
+    endedAt?: string;
+    endReason?: string;
+  };
+}
+
+/** The consultation history screen. `photo` is a raw URL (or undefined) — screens wrap it with utils/images.ts's `portraitOf`, the same as every other astrologer avatar. */
+export type ConsultationRow = {
+  id: string;
+  astrologer: string;
+  photo?: string;
+  topic: string;
+  timestamp: string;
+  amount: string;
+  duration: string;
+  channel: 'chat' | 'voice';
+  status: string;
+};
+
 /** The consultation history screen. */
-export async function fetchConsultations(status?: string) {
-  if (USE_DUMMY_DATA) {
+export async function fetchConsultations(status?: string): Promise<ConsultationRow[]> {
+  if (USE_DUMMY_CONSULTATIONS) {
     const rows = status ? DUMMY_CONSULTATIONS.filter(row => row.status === status) : DUMMY_CONSULTATIONS;
     return rows.map(row => ({
       id: row.id,
@@ -551,7 +777,7 @@ export async function fetchConsultations(status?: string) {
       photo: row.with?.photo,
       topic: titleCase(row.topic ?? 'general'),
       timestamp: dateTime(row.endedAt ?? row.createdAt),
-      amount: rupees(row.amountCharged),
+      amount: `-${rupees(row.amountCharged)}`,
       duration: minutesOf(row.durationSeconds),
       channel: row.channel === 'call' ? 'voice' : 'chat',
       status: row.status,
@@ -566,25 +792,116 @@ export async function fetchConsultations(status?: string) {
     photo: row.with?.photo,
     topic: titleCase(row.topic ?? 'general'),
     timestamp: dateTime(row.endedAt ?? row.createdAt),
-    amount: rupees(row.amountCharged),
+    amount: `-${rupees(row.amountCharged)}`,
     duration: minutesOf(row.durationSeconds),
     channel: row.channel === 'call' ? 'voice' : 'chat',
     status: row.status,
   }));
 }
 
+/** The chat intake form's "Recent Chats" shortcut — someone the seeker has already filled these details in for, once before. */
+export type RecentIntakeContact = {
+  id: string;
+  fullName: string;
+  gender?: 'male' | 'female';
+  dateOfBirth: string;
+  timeOfBirth: string;
+  birthPlace: string;
+};
+
+const DUMMY_RECENT_INTAKE_CONTACTS: RecentIntakeContact[] = [
+  { id: 'dummy-contact-1', fullName: 'Mithu Kumar', gender: 'male', dateOfBirth: '15 August 1995', timeOfBirth: '06 : 30 AM', birthPlace: 'Mumbai, Maharashtra' },
+];
+
+/**
+ * The chat intake screen's "Recent Chats" strip — distinct people the seeker
+ * has already submitted this form for, most recent first, so a repeat
+ * reading (for themself or someone else) doesn't mean retyping everything.
+ * Reuses GET /chats since that's already the one place every past chat's
+ * intake is stored; there's no dedicated endpoint for this.
+ */
+export async function fetchRecentIntakeContacts(): Promise<RecentIntakeContact[]> {
+  if (USE_DUMMY_CONSULTATIONS) {
+    return DUMMY_RECENT_INTAKE_CONTACTS;
+  }
+
+  const { data } = await client.get('/chats', { params: { limit: 20 } });
+  const seen = new Set<string>();
+  const contacts: RecentIntakeContact[] = [];
+
+  for (const row of data.items ?? []) {
+    const fullName: string | undefined = row.birthDetails?.fullName?.trim();
+    if (!fullName) continue;
+    const key = fullName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    contacts.push({
+      id: row.id,
+      fullName,
+      gender: row.birthDetails.gender === 'male' || row.birthDetails.gender === 'female' ? row.birthDetails.gender : undefined,
+      dateOfBirth: formatBirthDateFromIso(row.birthDetails.dateOfBirth),
+      timeOfBirth: formatBirthTimeFromHHmm(row.birthDetails.timeOfBirth),
+      birthPlace: row.birthDetails.place ?? '',
+    });
+
+    if (contacts.length >= 6) break;
+  }
+
+  return contacts;
+}
+
 /** One page of the transcript, oldest first. */
 export async function fetchMessages(chatId: string, beforeSeq?: number) {
-  if (USE_DUMMY_DATA) return DUMMY_MESSAGES;
+  if (USE_DUMMY_CONSULTATIONS) return DUMMY_MESSAGES;
   const { data } = await client.get(`/chats/${chatId}/messages`, {
     params: { beforeSeq, limit: 50 },
   });
   return data.items ?? [];
 }
 
-/** Sending without a socket — the fallback when the connection is down. */
+/**
+ * Joins the chat's live room — a live connection sees every message from here
+ * on via `message:new` — and returns whatever was posted after `lastSeq`
+ * while nobody was listening, so a screen that opens the socket after its
+ * initial `fetchMessages` page never has a gap between the two.
+ */
+export async function joinChat(chatId: string, lastSeq: number) {
+  return joinChatRoom(chatId, lastSeq);
+}
+
+/**
+ * Live updates for one open consultation — messages, minute ticks, low
+ * balance warnings, and the end, however it comes (either side, or the
+ * server's own grace-period cutoff). Returns the unsubscribe function.
+ */
+export const subscribeToConsultation = subscribeToChat;
+
+/**
+ * Live updates for one chat request still waiting on the astrologer —
+ * accepted, rejected, or aged out unanswered. Returns the unsubscribe
+ * function.
+ */
+export const subscribeToRequest = subscribeToChatRequest;
+
+export type { ChatMessage } from './socket';
+
+/**
+ * The live connection's lifecycle — opened once someone is signed in, closed
+ * the moment they are not. Called from App.tsx's own session-change
+ * listener, alongside everything else that reacts to signing in or out.
+ */
+export const connectLiveUpdates = connectSocket;
+export const disconnectLiveUpdates = disconnectSocket;
+
+/**
+ * Sends a message. Goes out over the live socket when there is one — that is
+ * also what makes the other side see it arrive instantly — and falls back to
+ * a plain HTTP post (still delivered, just not instant) when the connection
+ * is down.
+ */
 export async function sendMessage(chatId: string, text: string, clientMessageId?: string) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_CONSULTATIONS) {
     const message = {
       id: clientMessageId ?? `msg-${DUMMY_MESSAGES.length + 1}`,
       senderRole: 'user',
@@ -594,6 +911,14 @@ export async function sendMessage(chatId: string, text: string, clientMessageId?
     DUMMY_MESSAGES.push(message);
     return message;
   }
+
+  try {
+    const result = await sendChatMessage(chatId, text, clientMessageId ?? `local-${Date.now()}`);
+    return result.message;
+  } catch {
+    /** No socket, or it rejected — fall back to the REST path. */
+  }
+
   const { data } = await client.post(`/chats/${chatId}/messages`, {
     type: 'text',
     content: { text },
@@ -608,14 +933,14 @@ export async function sendMessage(chatId: string, text: string, clientMessageId?
 
 /** One thread per seeker, kept for good. Free — nothing is ever billed. */
 export async function fetchAiThread() {
-  if (USE_DUMMY_DATA) return DUMMY_AI_THREAD;
+  if (USE_DUMMY_AI_ASSISTANT) return DUMMY_AI_THREAD;
   const { data } = await client.get('/chats/ai', { params: { limit: 50 } });
   return data as { chatId: string; items: any[] };
 }
 
 /** Returns both turns, so the screen can append them together. */
 export async function askAi(text: string, clientMessageId?: string) {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_AI_ASSISTANT) {
     const question = {
       id: clientMessageId ?? `ai-msg-${DUMMY_AI_THREAD.items.length + 1}`,
       senderRole: 'user',
@@ -705,7 +1030,6 @@ export async function fetchSettings() {
     minRecharge: number;
     maxRecharge: number;
     minPayout: number;
-    freeTrialMinutes: number;
     features: Record<string, boolean>;
     appVersions: Record<string, string>;
     supportEmail?: string;

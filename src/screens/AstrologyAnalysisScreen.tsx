@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Platform,
+  ActivityIndicator,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -12,14 +12,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { SegmentedTabs } from '../components/SegmentedTabs';
-import {
-  analysisTabs,
-  analysisYogas,
-  antardashas,
-  doshas,
-  mahadashas,
-  type AnalysisTab,
-} from '../data/analysis';
+import { analysisTabs, type AnalysisTab } from '../data/analysis';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
 import {
   colors,
   designFrame,
@@ -33,7 +28,34 @@ import {
 const DESIGN_PADDING_TOP = 56;
 const MARKER_SIZE = 8;
 
+/** "2011-10-25T02:43:00.000Z" – "2031-10-25T02:43:00.000Z" -> "2011 – 2031". */
+function yearsOf(period: { start: string; end: string }): string {
+  const startYear = new Date(period.start).getUTCFullYear();
+  const endYear = new Date(period.end).getUTCFullYear();
+  return `${Number.isNaN(startYear) ? '—' : startYear} – ${Number.isNaN(endYear) ? '—' : endYear}`;
+}
+
+/** "8 yrs 5 mo" until a period ends — only meaningful for the one currently running. */
+function remainingOf(period: { end: string; current?: boolean }): string | undefined {
+  if (period.current !== true) {
+    return undefined;
+  }
+  const end = new Date(period.end).getTime();
+  const ms = end - Date.now();
+  if (!Number.isFinite(end) || ms <= 0) {
+    return undefined;
+  }
+  const totalMonths = Math.floor(ms / (1000 * 60 * 60 * 24 * 30.44));
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  if (years === 0) {
+    return `${months} mo`;
+  }
+  return months === 0 ? `${years} yr${years === 1 ? '' : 's'}` : `${years} yr${years === 1 ? '' : 's'} ${months} mo`;
+}
+
 type AstrologyAnalysisScreenProps = {
+  profileId: string;
   onBack?: () => void;
   /** Which reading to open on. */
   initialTab?: AnalysisTab;
@@ -45,8 +67,13 @@ type AstrologyAnalysisScreenProps = {
  * Deep reading of the birth chart, split across three tabs: the running
  * planetary periods, the yogas the chart forms, and the doshas it carries.
  * Figma: nodes 180:89757 (Dasha), 180:89892 (Yogas), 180:90009 (Doshas).
+ *
+ * Yogas has no backend source yet (out of scope for the AstrologyAPI
+ * integration) — its tab shows a placeholder rather than the design
+ * fixture's sample data.
  */
 export function AstrologyAnalysisScreen({
+  profileId,
   onBack,
   initialTab = 'dasha',
   activeTab = 'home',
@@ -54,6 +81,9 @@ export function AstrologyAnalysisScreen({
 }: AstrologyAnalysisScreenProps) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<AnalysisTab>(initialTab);
+
+  const dasha = useApi(() => api.fetchKundliDasha(profileId), [profileId]);
+  const doshas = useApi(() => api.fetchKundliDoshas(profileId), [profileId]);
 
   return (
     <View style={styles.screen}>
@@ -96,168 +126,149 @@ export function AstrologyAnalysisScreen({
       >
         {tab === 'dasha' && (
           <>
-            <Text style={styles.sectionTitle}>Mahadasha (Major Periods)</Text>
-            <View style={styles.periodList}>
-              {mahadashas.map(period => (
-                <View
-                  key={period.name}
-                  style={[
-                    styles.periodCard,
-                    period.active === true
-                      ? styles.cardSelected
-                      : styles.cardIdle,
-                  ]}
-                >
-                  <View style={styles.periodCopy}>
-                    <View style={styles.periodHeading}>
-                      <Text style={styles.periodName}>{period.name}</Text>
-                      {period.active === true && (
-                        <View style={styles.activeBadge}>
-                          <Text style={styles.activeLabel}>ACTIVE</Text>
+            {dasha.loading && !dasha.data && (
+              <ActivityIndicator color={colors.border.strong} style={styles.spinner} />
+            )}
+            {!dasha.loading && dasha.error && (
+              <Text style={styles.centeredText}>{dasha.error.message}</Text>
+            )}
+            {dasha.data && (
+              <>
+                <Text style={styles.sectionTitle}>Mahadasha (Major Periods)</Text>
+                <View style={styles.periodList}>
+                  {dasha.data.mahadasha.map(period => (
+                    <View
+                      key={period.lord}
+                      style={[
+                        styles.periodCard,
+                        period.current === true
+                          ? styles.cardSelected
+                          : styles.cardIdle,
+                      ]}
+                    >
+                      <View style={styles.periodCopy}>
+                        <View style={styles.periodHeading}>
+                          <Text style={styles.periodName}>{`${period.lord} Dasha`}</Text>
+                          {period.current === true && (
+                            <View style={styles.activeBadge}>
+                              <Text style={styles.activeLabel}>ACTIVE</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.periodYears}>{yearsOf(period)}</Text>
+                      </View>
+
+                      {remainingOf(period) !== undefined && (
+                        <View style={styles.remaining}>
+                          <Text style={styles.remainingLabel}>Remaining</Text>
+                          <Text style={styles.remainingValue}>
+                            {remainingOf(period)}
+                          </Text>
                         </View>
                       )}
                     </View>
-                    <Text style={styles.periodYears}>{period.years}</Text>
-                  </View>
+                  ))}
+                </View>
 
-                  {period.remaining !== undefined && (
-                    <View style={styles.remaining}>
-                      <Text style={styles.remainingLabel}>Remaining</Text>
-                      <Text style={styles.remainingValue}>
-                        {period.remaining}
-                      </Text>
+                <Text style={[styles.sectionTitle, styles.subSection]}>
+                  Antardasha (Sub-periods of the current Mahadasha)
+                </Text>
+                <View style={styles.subPeriodList}>
+                  {dasha.data.currentAntardasha.map(sub => (
+                    <View
+                      key={sub.lord}
+                      style={[
+                        styles.subPeriodRow,
+                        sub.current === true ? styles.cardSelected : styles.cardIdle,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.marker,
+                          sub.current === true
+                            ? styles.markerActive
+                            : styles.markerIdle,
+                        ]}
+                      />
+                      <View>
+                        <Text style={styles.subPeriodName}>{sub.lord}</Text>
+                        <Text style={styles.subPeriodDates}>{yearsOf(sub)}</Text>
+                      </View>
                     </View>
-                  )}
+                  ))}
                 </View>
-              ))}
-            </View>
-
-            <Text style={[styles.sectionTitle, styles.subSection]}>
-              Antardasha (Sub-periods)
-            </Text>
-            <View style={styles.subPeriodList}>
-              {antardashas.map(sub => (
-                <View
-                  key={sub.name}
-                  style={[
-                    styles.subPeriodRow,
-                    sub.active === true ? styles.cardSelected : styles.cardIdle,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.marker,
-                      sub.active === true
-                        ? styles.markerActive
-                        : styles.markerIdle,
-                    ]}
-                  />
-                  <View>
-                    <Text style={styles.subPeriodName}>{sub.name}</Text>
-                    <Text style={styles.subPeriodDates}>{sub.period}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
+              </>
+            )}
           </>
         )}
 
         {tab === 'yogas' && (
-          <View style={styles.cardList}>
-            {analysisYogas.map(yoga => {
-              const beneficial = yoga.verdict === 'Beneficial';
-
-              return (
-                <View key={yoga.name} style={styles.yogaCard}>
-                  <View style={styles.readingHeading}>
-                    <Text style={styles.readingName}>{yoga.name}</Text>
-                    <View style={styles.badges}>
-                      <View
-                        style={[
-                          styles.badge,
-                          beneficial
-                            ? styles.badgePositive
-                            : styles.badgeNegative,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.badgeLabel,
-                            {
-                              color: beneficial
-                                ? colors.status.positive
-                                : colors.status.negative,
-                            },
-                          ]}
-                        >
-                          {yoga.verdict}
-                        </Text>
-                      </View>
-                      <View style={[styles.badge, styles.badgePlain]}>
-                        <Text style={styles.badgePlainLabel}>
-                          {yoga.strength}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                  <Text style={styles.readingDescription}>
-                    {yoga.description}
-                  </Text>
-                </View>
-              );
-            })}
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderText}>
+              Yoga analysis is coming soon.
+            </Text>
           </View>
         )}
 
         {tab === 'doshas' && (
-          <View style={styles.cardList}>
-            {doshas.map(dosha => (
-              <View
-                key={dosha.name}
-                style={[
-                  styles.doshaCard,
-                  dosha.present ? styles.doshaPresent : styles.doshaAbsent,
-                ]}
-              >
-                <View style={styles.readingHeading}>
-                  <Text style={styles.readingName}>{dosha.name}</Text>
-                  <View style={styles.badges}>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        dosha.present
-                          ? styles.badgeNegative
-                          : styles.badgePositive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusLabel,
-                          {
-                            color: dosha.present
-                              ? colors.status.negative
-                              : colors.status.positive,
-                          },
-                        ]}
-                      >
-                        {dosha.present ? 'Present' : 'Absent'}
-                      </Text>
-                    </View>
-                    {dosha.severity !== undefined && (
-                      <View style={[styles.statusBadge, styles.badgePlain]}>
-                        <Text style={styles.severityLabel}>
-                          {dosha.severity}
-                        </Text>
+          <>
+            {doshas.loading && !doshas.data && (
+              <ActivityIndicator color={colors.border.strong} style={styles.spinner} />
+            )}
+            {!doshas.loading && doshas.error && (
+              <Text style={styles.centeredText}>{doshas.error.message}</Text>
+            )}
+            {doshas.data && (
+              <View style={styles.cardList}>
+                {doshas.data.doshas.map(dosha => (
+                  <View
+                    key={dosha.name}
+                    style={[
+                      styles.doshaCard,
+                      dosha.present ? styles.doshaPresent : styles.doshaAbsent,
+                    ]}
+                  >
+                    <View style={styles.readingHeading}>
+                      <Text style={styles.readingName}>{dosha.name}</Text>
+                      <View style={styles.badges}>
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            dosha.present
+                              ? styles.badgeNegative
+                              : styles.badgePositive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.statusLabel,
+                              {
+                                color: dosha.present
+                                  ? colors.status.negative
+                                  : colors.status.positive,
+                              },
+                            ]}
+                          >
+                            {dosha.present ? 'Present' : 'Absent'}
+                          </Text>
+                        </View>
+                        {dosha.severity !== undefined && (
+                          <View style={[styles.statusBadge, styles.badgePlain]}>
+                            <Text style={styles.severityLabel}>
+                              {dosha.severity}
+                            </Text>
+                          </View>
+                        )}
                       </View>
-                    )}
+                    </View>
+                    <Text style={styles.readingDescription}>
+                      {dosha.description}
+                    </Text>
                   </View>
-                </View>
-                <Text style={styles.readingDescription}>
-                  {dosha.description}
-                </Text>
+                ))}
               </View>
-            ))}
-          </View>
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -297,6 +308,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
+  },
+
+  spinner: {
+    marginTop: spacing.xxl,
+  },
+  centeredText: {
+    ...typography.body,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    marginTop: spacing.xxl,
+  },
+  placeholder: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+  },
+  placeholderText: {
+    ...typography.body,
+    color: colors.text.secondary,
+    textAlign: 'center',
   },
 
   sectionTitle: {
@@ -404,24 +434,6 @@ const styles = StyleSheet.create({
   cardList: {
     gap: spacing.md,
   },
-  yogaCard: {
-    borderRadius: radius.input,
-    borderWidth: hairline,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface,
-    padding: 16.755,
-    // drop-shadow(0 2px 4px rgba(0, 0, 0, 0.04))
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
-      },
-      android: { elevation: 1 },
-      default: {},
-    }),
-  },
   doshaCard: {
     borderRadius: radius.input,
     borderWidth: hairline,
@@ -451,11 +463,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 6,
   },
-  badge: {
-    borderRadius: radius.chip,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-  },
   statusBadge: {
     borderRadius: radius.chip,
     paddingHorizontal: 10,
@@ -469,13 +476,6 @@ const styles = StyleSheet.create({
   },
   badgePlain: {
     backgroundColor: colors.surface,
-  },
-  badgeLabel: {
-    ...typography.badgeLabel,
-  },
-  badgePlainLabel: {
-    ...typography.microLabel,
-    color: colors.border.strong,
   },
   statusLabel: {
     ...typography.priceLabel,

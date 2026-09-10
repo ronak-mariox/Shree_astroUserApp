@@ -14,14 +14,7 @@ export type ChatIntake = {
   gender: 'male' | 'female';
   birthPlace: string;
   topic: string;
-  /** Minutes booked for the session — the window the user pays for. */
-  minutes: number;
 };
-
-/** How long a chat runs, in minutes. */
-export const CHAT_WINDOWS = [3, 5, 10, 15] as const;
-
-export type ChatWindow = (typeof CHAT_WINDOWS)[number];
 
 export const TOPICS = [
   'Love & Relationship',
@@ -34,13 +27,27 @@ export const TOPICS = [
   'Family',
 ] as const;
 
-/** The four faces over "Recent Chats" (Figma node 180:95032). */
-export const RECENT_CHATS = [
-  { id: 'mithu', name: 'Mithu' },
-  { id: 'ashish', name: 'Ashish' },
-  { id: 'nanika', name: 'Nanika' },
-  { id: 'nidhi', name: 'NIdhi' },
-] as const;
+/**
+ * The dropdown's own labels -> the backend's topic slugs (models/constants.js's
+ * TOPICS enum on Chat's intake.topic — the same enum astro_app's `titleOf`
+ * turns back into a label on its own side). The picker only ever produces one
+ * of these eight; a topic dressed up any other way falls back to "general",
+ * the enum's own default.
+ */
+const TOPIC_SLUGS: Record<(typeof TOPICS)[number], string> = {
+  'Love & Relationship': 'love-relationship',
+  Marriage: 'marriage',
+  'Career & Job': 'career-job',
+  Business: 'business',
+  Education: 'education',
+  Health: 'health',
+  'Wealth & Finance': 'wealth-finance',
+  Family: 'family',
+};
+
+/** "Career & Job" -> "career-job", ready for POST /chats' intake.topic. */
+export const topicSlugFor = (label: string): string =>
+  TOPIC_SLUGS[label as (typeof TOPICS)[number]] ?? 'general';
 
 export const MONTHS = [
   'Jan',
@@ -98,6 +105,41 @@ export const formatBirthTime = (
   meridiem: string,
 ) => `${hour} : ${minute} ${meridiem}`;
 
+/**
+ * "1999-08-15T00:00:00.000Z" -> "15 August 1999", ready for the field to
+ * print as-is — the same shape {@link formatBirthDate} builds from the wheel.
+ * Read as UTC fields, since a birth date is stored at UTC midnight precisely
+ * so no local timezone can shift the day.
+ */
+export const formatBirthDateFromIso = (value?: string): string => {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return formatBirthDate(pad(date.getUTCDate()), MONTHS[date.getUTCMonth()], String(date.getUTCFullYear()));
+};
+
+/**
+ * "22:30" (the backend's 24-hour storage format) -> "10 : 30 PM", the same
+ * shape {@link formatBirthTime} builds from the wheel.
+ */
+export const formatBirthTimeFromHHmm = (value?: string): string => {
+  if (!value) {
+    return '';
+  }
+  const parts = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!parts) {
+    return '';
+  }
+  const hour24 = Number(parts[1]);
+  const meridiem = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return formatBirthTime(pad(hour12), parts[2], meridiem);
+};
+
 /** "Wait 00:01:21" → 81 seconds; an unreadable wait falls back to two minutes. */
 export const waitSeconds = (wait?: string, fallback = 120) => {
   if (wait === undefined) {
@@ -123,38 +165,6 @@ export const waitClock = (wait: string) => {
     : `${parts[1]}:${parts[2]}`;
 };
 
-/**
- * How the conversation opens: the birth details the intake form filed, then
- * the greeting the platform posts while the astrologer joins.
- * Figma prints both at nodes 180:118810 and 180:118756.
- */
-export const openingMessages = (
-  intakeLines: ReadonlyArray<string> | undefined,
-  astrologerName: string,
-) => {
-  const time = '10:54 AM';
-  const greeting = {
-    id: 'greeting',
-    from: 'astrologer' as const,
-    lines: [
-      'Welcome to Shree Astro',
-      `${astrologerName} will join within 10 second`,
-      '',
-      'Please share your question in the meanwhile',
-    ],
-    time,
-  };
-
-  if (intakeLines === undefined || intakeLines.length === 0) {
-    return [greeting];
-  }
-
-  return [
-    { id: 'intake', from: 'seeker' as const, lines: intakeLines, time },
-    greeting,
-  ];
-};
-
 /** The intake form's answers, as the opening message prints them. */
 export const intakeSummary = (intake: ChatIntake) => [
   'Hi',
@@ -165,5 +175,4 @@ export const intakeSummary = (intake: ChatIntake) => [
   `TOB: ${intake.timeOfBirth}`,
   `POB: ${intake.birthPlace}`,
   ...(intake.topic === '' ? [] : [`Topic: ${intake.topic}`]),
-  `Session: ${intake.minutes} min`,
 ];
