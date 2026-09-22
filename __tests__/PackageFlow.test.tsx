@@ -456,6 +456,55 @@ describe('live package session', () => {
     expect(composer(tree).props.editable).toBe(true);
   });
 
+  test('reported case: package over → recharge to ₹44 → per-minute at ₹30 starts and the paid minute stays usable', async () => {
+    let balance = 14;
+    let state: Record<string, unknown> = packageState({ endsAt: iso(2_000) });
+    (state as any).ratePerMinute = 30;
+    jest.spyOn(api, 'getChatState').mockImplementation(async () => state as never);
+    jest.spyOn(api, 'fetchWallet').mockImplementation(async () => ({ balance, currency: 'INR' }) as never);
+    jest.spyOn(api, 'startTopUp').mockImplementation(async (amount: number) => {
+      balance += amount;
+      return { transactionId: 't-1' } as never;
+    });
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+    const options = (b: number) => {
+      const packages = quotePackages(30, b);
+      return { ratePerMinute: 30, balanceRemaining: b, perMinuteAffordable: b >= 30, packages, canContinue: b >= 30 || packages.some(q => q.affordable) };
+    };
+
+    await ReactTestRenderer.act(() => {
+      firePackageEnded({ chatId: 'chat-1', pausedSince: iso(0), serverTime: iso(0), ...options(14) });
+    });
+    expect(textOf(tree)).toContain('Recharge Now');
+
+    // Recharge ₹20 (+₹10 bonus) → ₹44: enough for a ₹30 minute, not for any package.
+    state = { ...state, package: { phase: 'awaiting_choice', awaitingChoiceSince: iso(0), endsAt: iso(0), ...options(44) } };
+    await press(tree, '₹20, get ₹10 extra');
+    await press(tree, 'Pay Now');
+    expect(balance).toBe(44);
+    expect(textOf(tree)).toContain('How would you like to continue?');
+
+    await press(tree, 'Continue per-minute · ₹30/min');
+    expect(mockContinue).toHaveBeenCalledWith('chat-1', { mode: 'per_minute' });
+    expect(textOf(tree)).not.toContain('How would you like to continue?');
+    expect(textOf(tree)).not.toContain('Recharge Now');
+    expect(composer(tree).props.editable).toBe(true);
+
+    // Mid-minute the server warns the NEXT minute (₹14 < ₹30) won't be covered — the paid minute stays usable.
+    await ReactTestRenderer.act(() => {
+      firePerMinuteStarted({ chatId: 'chat-1', perMinuteStartedAt: iso(0), serverTime: iso(0), ratePerMinute: 30, balanceRemaining: 14 });
+      fireLowBalance({ chatId: 'chat-1', exhausted: false, secondsUntilCut: 40, requiredAmount: 30, balanceRemaining: 14 });
+    });
+    expect(textOf(tree)).toContain('Low Balance:');
+    expect(composer(tree).props.editable).toBe(true);
+
+    // When that minute runs out the chat pauses, as any per-minute chat does.
+    await ReactTestRenderer.act(() => {
+      fireLowBalance({ chatId: 'chat-1', exhausted: true, paused: true, balanceRemaining: 14 });
+    });
+    expect(composer(tree).props.editable).toBe(false);
+  });
+
   test('a per-minute session shows none of the package UI (unchanged)', async () => {
     const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
     const text = textOf(tree);
