@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandGradient } from '../components/BrandGradient';
 import { EndChatDialog } from '../components/AstrologerBusyDialog';
 import { ChatEndedDialog } from '../components/ChatEndedDialog';
-import { ExtendConsultationDialog } from '../components/ExtendConsultationDialog';
 import { PackageTimerBanner } from '../components/PackageTimerBanner';
 import {
   ConsultationBubble,
@@ -32,19 +31,15 @@ import { RechargePopup } from '../components/RechargePopup';
 import { type RechargeOption } from '../data/wallet';
 import {
   clockOffsetMs,
+  elapsedSeconds,
   formatCountdown,
-  resolveQuotes,
-  respondByFrom,
   secondsUntil,
-  type PackageQuote,
   type PackageView,
 } from '../data/consultPackages';
 import { useApi } from '../hooks/useApi';
 import {
   confirmTopUp,
-  continuePerMinute,
   endChat,
-  extendPackage,
   fetchWallet,
   getChatState,
   rupees,
@@ -190,10 +185,6 @@ export function ConsultationChatScreen({
   const clockOffset = useRef(0);
   /** Only there to re-render the package countdowns once a second. */
   const [, setClockTick] = useState(0);
-  /** True while an answer to the extend prompt is in flight — its buttons are disabled so it can't be sent twice. */
-  const [answeringPrompt, setAnsweringPrompt] = useState(false);
-  /** The amount the recharge popup should ask for when opened from the extend prompt (a package's price, or one minute). */
-  const [rechargeMin, setRechargeMin] = useState<number>();
 
   /** Backfilled history and live pushes can overlap by one message at a reconnect; this is what keeps that from showing twice. */
   const seenMessageIds = useRef(new Set<string>());
@@ -255,36 +246,40 @@ export function ConsultationChatScreen({
     }
   }, [sessionPaused]);
 
+  // Declared before the running clock below, so its very first tick already counts on the server's clock.
+  // The server-clock offset (every session) and a package session's view, from the REST state read.
+  useEffect(() => {
+    if (state.data?.serverTime) {
+      clockOffset.current = clockOffsetMs(state.data.serverTime);
+    }
+    if (state.data?.billingMode === 'package' && state.data.package) {
+      setPkg(state.data.package);
+    }
+  }, [state.data]);
+
   // The header's running clock: real elapsed time since the server's own
-  // startedAt, minus however long it's spent paused for a low balance —
-  // ticked locally so it doesn't need a round trip every second.
+  // startedAt, measured on the SERVER's clock (so it reads exactly what the
+  // astrologer's header reads, whatever this phone's clock says), minus
+  // however long it's spent paused for a low balance — ticked locally so it
+  // doesn't need a round trip every second.
   useEffect(() => {
     const startedAt = state.data?.startedAt;
     if (!startedAt) {
       return;
     }
-    const started = new Date(startedAt).getTime();
     const tick = () => {
       if (pausedSince.current !== null) {
         /** Frozen — hold the last value rather than keep advancing it. */
         return;
       }
-      setElapsed(Math.max(0, Math.floor((Date.now() - started - pausedAccumMs.current) / 1000)));
+      setElapsed(elapsedSeconds(startedAt, clockOffset.current, pausedAccumMs.current));
     };
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [state.data?.startedAt]);
 
-  // A package session's view from the REST state read (first render, and any explicit reload).
-  useEffect(() => {
-    if (state.data?.billingMode === 'package' && state.data.package) {
-      clockOffset.current = clockOffsetMs(state.data.serverTime);
-      setPkg(state.data.package);
-    }
-  }, [state.data]);
-
-  const packageClockRunning = pkg?.phase === 'package' || pkg?.phase === 'awaiting_extension';
+  const packageClockRunning = pkg?.phase === 'package';
   useEffect(() => {
     if (!packageClockRunning) {
       return;
@@ -307,9 +302,11 @@ export function ConsultationChatScreen({
        * connection) and never redelivered once it reconnects.
        */
       onRejoinState: payload => {
-        /** Package sessions: resync the package clock/prompt too — a package event can be missed exactly like a low-balance one. */
-        if (payload.package) {
+        if (payload.serverTime) {
           clockOffset.current = clockOffsetMs(payload.serverTime);
+        }
+        /** Package sessions: resync the package clock too — a package event can be missed exactly like a low-balance one. */
+        if (payload.package) {
           setPkg(payload.package);
         }
         if (payload.paused) {
@@ -351,41 +348,12 @@ export function ConsultationChatScreen({
         clockOffset.current = clockOffsetMs(payload.serverTime);
         setPkg(current => (current ? { ...current, endsAt: payload.endsAt } : current));
       },
-      onPackageEnded: payload => {
-        clockOffset.current = clockOffsetMs(payload.serverTime);
-        applyLiveBalance(payload.balanceRemaining);
-        setPkg(current => ({
-          ...(current ?? {}),
-          phase: 'awaiting_extension',
-          promptedAt: payload.promptedAt,
-          respondWithinSeconds: payload.respondWithinSeconds,
-          respondBy: respondByFrom(payload.promptedAt, payload.respondWithinSeconds),
-          packages: payload.packages,
-          perMinuteAffordable: payload.perMinuteAffordable,
-          balanceRemaining: payload.balanceRemaining,
-        }));
-      },
-      onPackageExtended: payload => {
-        clockOffset.current = clockOffsetMs(payload.serverTime);
-        applyLiveBalance(payload.balanceRemaining);
-        setPkg(current => ({
-          ...(current ?? {}),
-          phase: 'package',
-          endsAt: payload.endsAt,
-          promptedAt: undefined,
-          respondBy: undefined,
-          packages: undefined,
-        }));
-      },
+      /** The package ran out: from here it's an ordinary per-minute chat (ticks, low balance, recharge — all the existing handlers above). */
       onPerMinuteStarted: payload => {
-        applyLiveBalance(payload.balanceRemaining);
         setPkg(current => ({
           ...(current ?? {}),
           phase: 'per_minute',
           perMinuteStartedAt: payload.perMinuteStartedAt,
-          promptedAt: undefined,
-          respondBy: undefined,
-          packages: undefined,
         }));
       },
       onEnded: () => {
@@ -432,89 +400,21 @@ export function ConsultationChatScreen({
 
   /* Package session: what the clock says right now (all false/0 for a per-minute session). */
   const packageSecondsLeft = pkg?.phase === 'package' ? secondsUntil(pkg.endsAt, clockOffset.current) : 0;
-  const awaitingExtension = pkg?.phase === 'awaiting_extension' && !closed;
-  /** Frozen from the moment the package runs out — the server refuses messages then too — until extended or switched. */
-  const packageFrozen =
-    !closed && (awaitingExtension || (pkg?.phase === 'package' && Boolean(pkg.endsAt) && packageSecondsLeft === 0));
+  /**
+   * "Package ending, then ₹X/min" — only while the wallet is fine. When it
+   * isn't, the server sends the ordinary low-balance event instead and the
+   * existing LowBalanceBanner / RechargePopup take over, as in any chat.
+   */
   const packageBannerVisible =
-    !closed && pkg?.phase === 'package' && Boolean(pkg.endsAt) && packageSecondsLeft <= (pkg.warningSeconds ?? 30);
-  const respondSecondsLeft = awaitingExtension ? secondsUntil(pkg?.respondBy, clockOffset.current) : 0;
-  const composerLocked = closed || lowBalanceVisible || packageFrozen;
-
-  const openRecharge = (minimum?: number) => {
-    setRechargeMin(minimum);
-    setRechargeVisible(true);
-  };
-
-  /** A refused answer to the extend prompt: short on money opens the recharge flow; a stale prompt re-reads the truth. */
-  const handlePromptError = (error: unknown, price?: number) => {
-    if (error instanceof ApiError && error.code === 'insufficient_balance') {
-      openRecharge(Number(error.details?.price ?? price ?? state.data?.ratePerMinute));
-      return;
-    }
-    if (error instanceof ApiError && (error.code === 'price_changed' || error.code === 'not_awaiting_extension')) {
-      state.reload();
-      if (error.code === 'price_changed') {
-        Alert.alert('Price updated', error.message);
-      }
-      return;
-    }
-    Alert.alert(
-      'Could not continue',
-      error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-    );
-  };
-
-  const chooseExtension = async (quote: PackageQuote) => {
-    if (answeringPrompt) {
-      return;
-    }
-    if (quote.affordable === false) {
-      openRecharge(quote.price);
-      return;
-    }
-    setAnsweringPrompt(true);
-    try {
-      const result = await extendPackage(chatId, quote.minutes, quote.price);
-      clockOffset.current = clockOffsetMs(result.serverTime);
-      applyLiveBalance(result.balanceRemaining);
-      setPkg(current => ({
-        ...(current ?? {}),
-        phase: 'package',
-        endsAt: result.endsAt,
-        promptedAt: undefined,
-        respondBy: undefined,
-        packages: undefined,
-      }));
-    } catch (error) {
-      handlePromptError(error, quote.price);
-    } finally {
-      setAnsweringPrompt(false);
-    }
-  };
-
-  const choosePerMinute = async () => {
-    if (answeringPrompt) {
-      return;
-    }
-    setAnsweringPrompt(true);
-    try {
-      const result = await continuePerMinute(chatId);
-      applyLiveBalance(result.balanceRemaining);
-      setPkg(current => ({
-        ...(current ?? {}),
-        phase: 'per_minute',
-        perMinuteStartedAt: result.perMinuteStartedAt,
-        promptedAt: undefined,
-        respondBy: undefined,
-        packages: undefined,
-      }));
-    } catch (error) {
-      handlePromptError(error, state.data?.ratePerMinute);
-    } finally {
-      setAnsweringPrompt(false);
-    }
-  };
+    !closed && !lowBalanceVisible && pkg?.phase === 'package' && Boolean(pkg.endsAt)
+    && packageSecondsLeft <= (pkg.warningSeconds ?? 30);
+  /**
+   * Per-minute: the existing rule — the low-balance banner locks the composer.
+   * Package time is already paid for, so a low-balance warning during it
+   * (about the per-minute time that follows) only locks the composer once
+   * the session actually pauses.
+   */
+  const composerLocked = closed || sessionPaused || (lowBalanceVisible && pkg?.phase !== 'package');
 
   const send = async () => {
     const body = draft.trim();
@@ -570,12 +470,7 @@ export function ConsultationChatScreen({
       await confirmTopUp(pending.transactionId);
       await wallet.reload();
       setRechargeVisible(false);
-      setRechargeMin(undefined);
       setLowBalanceVisible(false);
-      /** Opened from the extend prompt: re-read it so its options reflect the new balance. */
-      if (awaitingExtension) {
-        state.reload();
-      }
     } catch (error) {
       Alert.alert(
         'Could not add money',
@@ -618,7 +513,7 @@ export function ConsultationChatScreen({
             {astrologerName}
           </Text>
           <Text style={styles.elapsed}>
-            {pkg?.phase === 'package' || awaitingExtension
+            {pkg?.phase === 'package'
               ? `(${formatCountdown(packageSecondsLeft)} left)`
               : elapsedLabel(elapsed)}
           </Text>
@@ -644,7 +539,9 @@ export function ConsultationChatScreen({
         </Pressable>
       </View>
 
-      {packageBannerVisible && <PackageTimerBanner secondsLeft={packageSecondsLeft} />}
+      {packageBannerVisible && (
+        <PackageTimerBanner secondsLeft={packageSecondsLeft} ratePerMinute={state.data?.ratePerMinute ?? 0} />
+      )}
 
       {lowBalanceVisible && (
         <LowBalanceBanner
@@ -673,31 +570,10 @@ export function ConsultationChatScreen({
         }}
       />
 
-      {/* Hidden while the recharge popup is up — two modals can't be presented at once on iOS; it comes back after. */}
-      <ExtendConsultationDialog
-        visible={awaitingExtension && !rechargeVisible}
-        quotes={resolveQuotes(pkg?.packages, state.data?.ratePerMinute, wallet.data?.balance)}
-        ratePerMinute={state.data?.ratePerMinute ?? 0}
-        perMinuteAffordable={pkg?.perMinuteAffordable ?? true}
-        balance={wallet.data?.balance ?? pkg?.balanceRemaining}
-        secondsLeft={respondSecondsLeft}
-        busy={answeringPrompt}
-        onExtend={chooseExtension}
-        onPerMinute={choosePerMinute}
-        onEnd={() => {
-          if (!answeringPrompt) {
-            confirmEndChat();
-          }
-        }}
-      />
-
       <RechargePopup
         visible={rechargeVisible}
-        minRequired={rechargeMin ?? state.data?.ratePerMinute}
-        onDismiss={() => {
-          setRechargeVisible(false);
-          setRechargeMin(undefined);
-        }}
+        minRequired={state.data?.ratePerMinute}
+        onDismiss={() => setRechargeVisible(false)}
         onPay={handleRecharge}
         loading={payingRecharge}
       />

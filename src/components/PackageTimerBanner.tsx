@@ -2,19 +2,23 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { formatCountdown } from '../data/consultPackages';
+import { rupees } from '../services/api';
 import { colors, fontFamily, spacing } from '../theme';
 
 type PackageTimerBannerProps = {
   /** Seconds left on the package, measured on the server's clock. */
   secondsLeft: number;
+  /** What the session is billed at once the package runs out. */
+  ratePerMinute: number;
 };
 
 /**
- * Under the chat header of a package session in its last ~30 seconds, and
- * once its time is up while the extend prompt is on its way. Styled like
- * LowBalanceBanner so the two read as the same family of notices.
+ * Under the chat header of a package session in its last ~30 seconds: the
+ * package is ending and the chat will carry on per-minute. Informational
+ * only — when the wallet can't cover per-minute, the existing
+ * LowBalanceBanner (and its Recharge popup) is shown instead of this.
  */
-export function PackageTimerBanner({ secondsLeft }: PackageTimerBannerProps) {
+export function PackageTimerBanner({ secondsLeft, ratePerMinute }: PackageTimerBannerProps) {
   const timeUp = secondsLeft <= 0;
 
   return (
@@ -28,7 +32,9 @@ export function PackageTimerBanner({ secondsLeft }: PackageTimerBannerProps) {
           </>
         )}
       </Text>
-      <Text style={styles.note}>{timeUp ? 'Choose how to continue…' : "You'll be asked to extend."}</Text>
+      <Text style={styles.note}>
+        {timeUp ? `Continuing at ${rupees(ratePerMinute)}/min` : `Then ${rupees(ratePerMinute)}/min`}
+      </Text>
     </View>
   );
 }

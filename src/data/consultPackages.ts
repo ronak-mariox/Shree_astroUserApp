@@ -1,6 +1,7 @@
 /**
  * Fixed-length consultation packages — the alternative to per-minute billing
- * on the intake form, and the options on the "Extend consultation?" prompt.
+ * on the intake form. When a package runs out the session simply carries on
+ * per-minute (see PackageView).
  *
  * The server is the source of truth: POST /chats/precheck returns every
  * package already priced at the astrologer's real rate (backend
@@ -146,28 +147,40 @@ export function secondsUntil(iso: string | undefined | null, offsetMs: number, d
 }
 
 /**
+ * Whole seconds elapsed since `startedAt` on the server's clock, less any
+ * time spent paused — the per-minute header clock. astro_app's
+ * src/utils/sessionClock.ts computes the astrologer's header the same way,
+ * so both sides read the same number even when a phone's clock is off.
+ */
+export function elapsedSeconds(
+  startedAt: string | undefined | null,
+  offsetMs: number,
+  pausedMs = 0,
+  deviceNow: number = Date.now(),
+): number {
+  if (!startedAt) {
+    return 0;
+  }
+  const started = new Date(startedAt).getTime();
+  if (Number.isNaN(started)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((deviceNow + offsetMs - started - pausedMs) / 1000));
+}
+
+/**
  * Where a package session stands — mirrors backend chat.service.js's
- * packageViewFor, which every state read, socket rejoin and package event
- * feeds. `undefined` on a per-minute session.
+ * packageViewFor, fed by every state read, socket rejoin and package event.
+ * `undefined` on a per-minute session. 'package' while package time lasts;
+ * 'per_minute' once it has run out and the session is billed per minute
+ * (with the ordinary low-balance banner / recharge flow).
  */
 export type PackageView = {
-  phase: 'package' | 'awaiting_extension' | 'per_minute';
+  phase: 'package' | 'per_minute';
   endsAt?: string;
   warningSeconds?: number;
-  promptedAt?: string;
-  respondBy?: string;
-  respondWithinSeconds?: number;
   perMinuteStartedAt?: string;
   requestedMinutes?: number;
   minutesPurchased?: number;
   amountCharged?: number;
-  /** Only while the extend prompt is open. */
-  packages?: PackageQuote[];
-  perMinuteAffordable?: boolean;
-  balanceRemaining?: number;
 };
-
-/** The respond-by instant for a prompt opened at `promptedAt` — used when a live event carries only the start and the window. */
-export function respondByFrom(promptedAt: string, respondWithinSeconds: number): string {
-  return new Date(new Date(promptedAt).getTime() + respondWithinSeconds * 1000).toISOString();
-}
