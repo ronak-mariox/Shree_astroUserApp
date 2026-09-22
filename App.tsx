@@ -295,6 +295,28 @@ function App() {
   /** True while "Connect With …" is being sent — the form's button is disabled so a double tap can't send it twice. */
   const [submittingChat, setSubmittingChat] = useState(false);
   /**
+   * The intake form's unsaved answers (including the package picked), kept
+   * per astrologer so leaving the form to recharge and coming back restores
+   * them. Cleared once the request actually goes out.
+   */
+  const [intakeDraft, setIntakeDraft] = useState<{ astrologerId: string; draft: Partial<ChatIntake> }>();
+  /**
+   * Where a top-up should hand the seeker back to once it's done (or backed
+   * out of): the chat intake form when "Recharge Wallet" was pressed because
+   * a chat or package couldn't be afforded. Unset for an ordinary top-up
+   * from the wallet, which keeps its usual Wallet / Home endings.
+   */
+  const [rechargeReturnTo, setRechargeReturnTo] = useState<Route>();
+
+  /** "Recharge Wallet" from the chat flow: top up (pre-filled with what's missing), then come back to the intake form. */
+  const rechargeForChat = (shortfall?: number) => {
+    setRechargeReturnTo('chatIntake');
+    if (shortfall !== undefined && shortfall > 0) {
+      setTopUp(Math.ceil(shortfall));
+    }
+    setRoute('addMoney');
+  };
+  /**
    * What Create Profile collected. Registration is one request at the end of
    * the wizard, so step one is held here until birth details are saved.
    */
@@ -630,7 +652,7 @@ function App() {
           `You need at least ${rupees(check.shortfallAmount)} more in your wallet to start this chat (minimum ${check.minSessionMinutes} ${minuteWord}). Please recharge your wallet to continue.`,
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Recharge Wallet', onPress: () => setRoute('addMoney') },
+            { text: 'Recharge Wallet', onPress: () => rechargeForChat(check.shortfallAmount) },
           ],
         );
         return;
@@ -665,6 +687,7 @@ function App() {
     setSubmittingChat(true);
     try {
       const request = await requestChat(chatWith.id, toApiIntake(intake), 'chat', billing);
+      setIntakeDraft(undefined);
       setRequestedChatId(request.chatId);
       setWaitLeft(request.expiresInSeconds);
       setConnecting(true);
@@ -677,7 +700,7 @@ function App() {
           `The ${billing.packageMinutes}-minute package costs ${rupees(price)}. You need ${rupees(shortfall)} more in your wallet. Please recharge to continue.`,
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Recharge Wallet', onPress: () => setRoute('addMoney') },
+            { text: 'Recharge Wallet', onPress: () => rechargeForChat(shortfall) },
           ],
         );
         return;
@@ -711,7 +734,7 @@ function App() {
           'You have insufficient funds to start this consultation. Please recharge your wallet to continue.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Recharge Wallet', onPress: () => setRoute('addMoney') },
+            { text: 'Recharge Wallet', onPress: () => rechargeForChat(chatQuote?.ratePerMinute) },
           ],
         );
         return;
@@ -929,7 +952,10 @@ function App() {
           onSearchPress={() => setRoute('findAstrologers')}
           onNotificationsPress={() => push('notifications', 'home')}
           onProfilePress={() => setRoute('profile')}
-          onAddFunds={() => setRoute('addMoney')}
+          onAddFunds={() => {
+            setRechargeReturnTo(undefined);
+            setRoute('addMoney');
+          }}
           onViewAllConsultations={() => push('pushedConsultations', 'home')}
           onSelectConsultation={() => push('pushedConsultations', 'home')}
           onOpenHoroscope={() =>
@@ -1052,6 +1078,7 @@ function App() {
             if (amount !== undefined) {
               setTopUp(amount);
             }
+            setRechargeReturnTo(undefined);
             setRoute('addMoney');
           }}
           onViewAllTransactions={() => push('transactionHistory', 'wallet')}
@@ -1061,7 +1088,11 @@ function App() {
       {route === 'addMoney' && (
         <AddMoneyScreen
           initialAmount={topUp}
-          onBack={() => setRoute('wallet')}
+          onBack={() => {
+            /** Backing out of a recharge started from the chat flow returns there, not to the wallet. */
+            setRoute(rechargeReturnTo === 'chatIntake' && chatWith ? 'chatIntake' : 'wallet');
+            setRechargeReturnTo(undefined);
+          }}
           onProceed={amount => {
             beginTopUp(amount);
           }}
@@ -1156,8 +1187,24 @@ function App() {
         <PaymentSuccessScreen
           amount={topUp}
           receipt={topUpReceipt}
-          onGoToWallet={() => setRoute('wallet')}
-          onBackToHome={() => setRoute('home')}
+          onGoToWallet={() => {
+            setRechargeReturnTo(undefined);
+            setRoute('wallet');
+          }}
+          onBackToHome={() => {
+            setRechargeReturnTo(undefined);
+            setRoute('home');
+          }}
+          continueLabel={`Continue with ${chatWith?.name ?? 'your consultation'}`}
+          onContinue={
+            rechargeReturnTo === 'chatIntake' && chatWith
+              ? () => {
+                  setRechargeReturnTo(undefined);
+                  /** Back to the form as it was — the pricing refreshes against the new balance on open. */
+                  setRoute('chatIntake');
+                }
+              : undefined
+          }
         />
       )}
 
@@ -1234,6 +1281,12 @@ function App() {
           packageQuotes={chatQuote?.packages}
           walletBalance={chatQuote?.balance}
           submitting={submittingChat}
+          draft={chatWith && intakeDraft?.astrologerId === chatWith.id ? intakeDraft.draft : undefined}
+          onDraftChange={draft => {
+            if (chatWith) {
+              setIntakeDraft({ astrologerId: chatWith.id, draft });
+            }
+          }}
         />
       )}
 

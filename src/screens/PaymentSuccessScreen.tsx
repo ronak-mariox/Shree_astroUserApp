@@ -41,6 +41,13 @@ type PaymentSuccessScreenProps = {
   receipt?: Receipt;
   onGoToWallet?: () => void;
   onBackToHome?: () => void;
+  /**
+   * Set when the top-up was started from somewhere the seeker should go
+   * back to — the chat intake form, when a package or chat couldn't be
+   * afforded. It becomes the primary button; Wallet and Home stay as links.
+   */
+  onContinue?: () => void;
+  continueLabel?: string;
 };
 
 /** One label/value line on the receipt. */
@@ -71,6 +78,8 @@ export function PaymentSuccessScreen({
   receipt = fallbackReceipt,
   onGoToWallet,
   onBackToHome,
+  onContinue,
+  continueLabel = 'Continue',
 }: PaymentSuccessScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -136,11 +145,20 @@ export function PaymentSuccessScreen({
           </View>
         </View>
 
-        <PrimaryButton
-          label="Go to Wallet"
-          style={styles.cta}
-          onPress={onGoToWallet}
-        />
+        {onContinue ? (
+          <>
+            <PrimaryButton label={continueLabel} style={styles.cta} onPress={onContinue} />
+            <Text accessibilityRole="link" onPress={onGoToWallet} style={styles.backHome}>
+              Go to Wallet
+            </Text>
+          </>
+        ) : (
+          <PrimaryButton
+            label="Go to Wallet"
+            style={styles.cta}
+            onPress={onGoToWallet}
+          />
+        )}
 
         <Text
           accessibilityRole="link"

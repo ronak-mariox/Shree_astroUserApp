@@ -365,6 +365,9 @@ export const firePerMinuteStarted = (payload: Record<string, unknown>) => consul
 export const fireEnded = (payload?: { reason?: string }) =>
   consultationHandlers?.onEnded?.({ chatId: 'chat-1', endedBy: 'system', reason: payload?.reason, durationSeconds: 240, amountCharged: 60 });
 export const subscribeToRequest = () => () => {};
+/** App.tsx opens/closes the one live socket around the session — nothing to open in a test. */
+export const connectLiveUpdates = () => null;
+export const disconnectLiveUpdates = () => {};
 
 export const fetchAiThread = async () => ({ chatId: 'ai-1', items: [] });
 export const askAi = async () => ({
