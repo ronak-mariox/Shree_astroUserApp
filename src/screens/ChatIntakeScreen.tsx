@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -92,6 +92,14 @@ type ChatIntakeScreenProps = {
   walletBalance?: number;
   /** True while the request is in flight — the button is disabled so a double tap can't send it twice. */
   submitting?: boolean;
+  /**
+   * What the seeker had already filled in (and which consultation type they
+   * picked) the last time this form was open — restored on mount, so a trip
+   * to recharge the wallet and back doesn't wipe the form.
+   */
+  draft?: Partial<ChatIntake>;
+  /** Called with the form's current answers whenever they change — the caller keeps them as `draft`. */
+  onDraftChange?: (draft: Partial<ChatIntake>) => void;
 };
 
 /**
@@ -112,13 +120,15 @@ export function ChatIntakeScreen({
   packageQuotes,
   walletBalance,
   submitting = false,
+  draft,
+  onDraftChange,
 }: ChatIntakeScreenProps) {
   const insets = useSafeAreaInsets();
   const recentContacts = useApi(() => fetchRecentIntakeContacts(), []);
-  const [fullName, setFullName] = useState(profileFullName || account.name);
-  const [dateOfBirth, setDateOfBirth] = useState(profileDateOfBirth || '08 February 1999');
-  const [timeOfBirth, setTimeOfBirth] = useState(profileTimeOfBirth || '10 : 30 PM');
-  const [gender, setGender] = useState<'male' | 'female'>('male');
+  const [fullName, setFullName] = useState(profileFullName || draft?.fullName || account.name);
+  const [dateOfBirth, setDateOfBirth] = useState(profileDateOfBirth || draft?.dateOfBirth || '08 February 1999');
+  const [timeOfBirth, setTimeOfBirth] = useState(profileTimeOfBirth || draft?.timeOfBirth || '10 : 30 PM');
+  const [gender, setGender] = useState<'male' | 'female'>(draft?.gender ?? 'male');
 
   /** The profile can still be loading on first mount; pick these up the moment it lands. */
   useEffect(() => {
@@ -135,10 +145,17 @@ export function ChatIntakeScreen({
   const fullNameLocked = Boolean(profileFullName);
   const dateOfBirthLocked = Boolean(profileDateOfBirth);
   const timeOfBirthLocked = Boolean(profileTimeOfBirth);
-  const [birthPlace, setBirthPlace] = useState('');
-  const [topic, setTopic] = useState('');
+  const [birthPlace, setBirthPlace] = useState(draft?.birthPlace ?? '');
+  const [topic, setTopic] = useState(draft?.topic ?? '');
   const [picker, setPicker] = useState<'date' | 'time' | 'topic' | null>(null);
-  const [consultation, setConsultation] = useState<ConsultationChoice>(PER_MINUTE);
+  const [consultation, setConsultation] = useState<ConsultationChoice>(draft?.consultation ?? PER_MINUTE);
+
+  /** Every answer, handed up as it changes so leaving (to recharge, say) and coming back restores it. */
+  const draftListener = useRef(onDraftChange);
+  draftListener.current = onDraftChange;
+  useEffect(() => {
+    draftListener.current?.({ fullName, dateOfBirth, timeOfBirth, gender, birthPlace, topic, consultation });
+  }, [fullName, dateOfBirth, timeOfBirth, gender, birthPlace, topic, consultation]);
   const quotes = resolveQuotes(packageQuotes, ratePerMinute, walletBalance);
   const offersPackages = ratePerMinute !== undefined && ratePerMinute > 0 && quotes.length > 0;
   /** A re-priced quote (the rate changed and the screen was handed new quotes) replaces a stale selected price. */

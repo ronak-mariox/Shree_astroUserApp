@@ -258,6 +258,13 @@ export const precheckSession = async () => ({
 export const requestChat = async () => ({
   chatId: 'chat-1', status: 'requested', ratePerMinute: 20, expiresInSeconds: 120,
 });
+/** After a package ran out: jest.fn so a test can assert the choice sent, or make it refuse. */
+export const continueConsultation = jest.fn(async (chatId: string, choice: { mode: string; minutes?: number; price?: number }) => {
+  const now = new Date();
+  return choice.mode === 'package'
+    ? { chatId, mode: 'package', endsAt: new Date(now.getTime() + (choice.minutes ?? 0) * 60000).toISOString(), serverTime: now.toISOString(), balanceRemaining: 1000 }
+    : { chatId, mode: 'per_minute', perMinuteStartedAt: now.toISOString(), serverTime: now.toISOString(), balanceRemaining: 980 };
+});
 export const cancelChat = async () => ({});
 export const endChat = async () => ({
   chatId: 'chat-1', status: 'ended', durationSeconds: 600, amountCharged: 200,
@@ -309,6 +316,8 @@ type ConsultationHandlers = {
   onAstrologerJoined?: (payload: { chatId: string }) => void;
   onEnded?: (payload: { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number }) => void;
   onPackageWarning?: (payload: Record<string, unknown>) => void;
+  onPackageEnded?: (payload: Record<string, unknown>) => void;
+  onPackageExtended?: (payload: Record<string, unknown>) => void;
   onPerMinuteStarted?: (payload: Record<string, unknown>) => void;
 };
 
@@ -361,10 +370,15 @@ export const fireTick = (payload?: { chatId?: string; minutesBilled?: number; mi
   });
 /** Test-only: the package events, fired the way the real socket would. */
 export const firePackageWarning = (payload: Record<string, unknown>) => consultationHandlers?.onPackageWarning?.(payload);
+export const firePackageEnded = (payload: Record<string, unknown>) => consultationHandlers?.onPackageEnded?.(payload);
+export const firePackageExtended = (payload: Record<string, unknown>) => consultationHandlers?.onPackageExtended?.(payload);
 export const firePerMinuteStarted = (payload: Record<string, unknown>) => consultationHandlers?.onPerMinuteStarted?.(payload);
 export const fireEnded = (payload?: { reason?: string }) =>
   consultationHandlers?.onEnded?.({ chatId: 'chat-1', endedBy: 'system', reason: payload?.reason, durationSeconds: 240, amountCharged: 60 });
 export const subscribeToRequest = () => () => {};
+/** App.tsx opens/closes the one live socket around the session — nothing to open in a test. */
+export const connectLiveUpdates = () => null;
+export const disconnectLiveUpdates = () => {};
 
 export const fetchAiThread = async () => ({ chatId: 'ai-1', items: [] });
 export const askAi = async () => ({
