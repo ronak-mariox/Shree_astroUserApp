@@ -477,12 +477,14 @@ export function ConsultationChatScreen({
     !closed && !lowBalanceVisible && pkg?.phase === 'package' && Boolean(pkg.endsAt)
     && packageSecondsLeft <= (pkg.warningSeconds ?? 30);
   /**
-   * Per-minute: the existing rule — the low-balance banner locks the composer.
-   * Package time is already paid for, so a low-balance warning during it
-   * (about the per-minute time that follows) only locks the composer once
-   * the session actually pauses.
+   * Only an actual pause locks the composer — exactly when the server stops
+   * the session. A low-balance WARNING (the next minute won't be covered,
+   * or the package's follow-on) shows the banner and its Recharge button,
+   * but the time already paid for — the current minute, or the rest of a
+   * package — stays usable; with ₹44 at ₹30/min the seeker gets their full
+   * paid minute, and the chat pauses only once it runs out.
    */
-  const composerLocked = closed || sessionPaused || (lowBalanceVisible && pkg?.phase !== 'package');
+  const composerLocked = closed || sessionPaused;
   /** Paused after a package, with something affordable: ask for approval (hidden while the recharge popup is up — one modal at a time). */
   const awaitingChoice = !closed && pkg?.phase === 'awaiting_choice';
   const continueSheetVisible = awaitingChoice && pkg?.canContinue !== false && !rechargeVisible;

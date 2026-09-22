@@ -1055,7 +1055,8 @@ test('low balance shows a banner (not an alert), and Recharge opens the popup th
   expect(text).toContain('40');
   expect(text).toContain('₹40');
 
-  // While the banner is up, the composer can't send — the seeker has to recharge first.
+  // A warning is not a pause: the current minute is already paid for, so the
+  // seeker can keep chatting while the banner offers a recharge.
   const send = () => findPressable(tree, 'Send');
   const input = () =>
     tree.root.findAll(
@@ -1063,6 +1064,13 @@ test('low balance shows a banner (not an alert), and Recharge opens the popup th
     )[0];
   await ReactTestRenderer.act(() => {
     input().props.onChangeText('Still here?');
+  });
+  expect(send().props.disabled).toBe(false);
+  expect(input().props.editable).toBe(true);
+
+  // Only an actual pause (the paid time ran out) locks the composer.
+  await ReactTestRenderer.act(() => {
+    fireLowBalance({ chatId: 'chat-1', exhausted: true, paused: true, balanceRemaining: 40 });
   });
   expect(send().props.disabled).toBe(true);
   expect(input().props.editable).toBe(false);
