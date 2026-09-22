@@ -1,7 +1,8 @@
 /**
  * Fixed-length consultation packages — the alternative to per-minute billing
- * on the intake form. When a package runs out the session simply carries on
- * per-minute (see PackageView).
+ * on the intake form. When a package runs out the session pauses and the
+ * seeker chooses how to continue — per-minute or another package — from
+ * the same options (see PackageView).
  *
  * The server is the source of truth: POST /chats/precheck returns every
  * package already priced at the astrologer's real rate (backend
@@ -169,16 +170,36 @@ export function elapsedSeconds(
 }
 
 /**
+ * What the seeker can continue with once a package has run out — priced at
+ * the session's frozen rate and the admin's current discounts, checked
+ * against the live balance. Sent with the package-ended event and on every
+ * state read / rejoin while the choice is open.
+ */
+export type ContinueOptions = {
+  ratePerMinute?: number;
+  balanceRemaining?: number;
+  perMinuteAffordable?: boolean;
+  packages?: PackageQuote[];
+  /** False when nothing at all is affordable — recharge first (existing banner + popup), then choose. */
+  canContinue?: boolean;
+};
+
+/**
  * Where a package session stands — mirrors backend chat.service.js's
  * packageViewFor, fed by every state read, socket rejoin and package event.
- * `undefined` on a per-minute session. 'package' while package time lasts;
- * 'per_minute' once it has run out and the session is billed per minute
- * (with the ordinary low-balance banner / recharge flow).
+ * `undefined` on a per-minute session:
+ *
+ *   'package'          package time is running;
+ *   'awaiting_choice'  it ran out — paused (clock frozen, input blocked,
+ *                      nothing billed) until the seeker picks per-minute or
+ *                      another package;
+ *   'per_minute'       they chose per-minute; an ordinary per-minute chat.
  */
-export type PackageView = {
-  phase: 'package' | 'per_minute';
+export type PackageView = ContinueOptions & {
+  phase: 'package' | 'awaiting_choice' | 'per_minute';
   endsAt?: string;
   warningSeconds?: number;
+  awaitingChoiceSince?: string;
   perMinuteStartedAt?: string;
   requestedMinutes?: number;
   minutesPurchased?: number;

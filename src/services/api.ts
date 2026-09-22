@@ -16,6 +16,7 @@ import { formatBirthDateFromIso, formatBirthTimeFromHHmm } from '../data/chatInt
 import {
   packagePrice,
   quotePackages,
+  type ConsultationChoice,
   type PackageBooking,
   type PackageQuote,
   type PackageView,
@@ -725,6 +726,34 @@ export async function requestChat(astrologerId: string, intake: Intake, channel 
     billingMode?: 'per_minute' | 'package';
     packageMinutes?: number;
     expiresInSeconds: number;
+  };
+}
+
+/**
+ * After a package ran out: how the seeker continues — per-minute (first
+ * minute charged now) or another package (charged now, at the price shown).
+ * The server re-checks the wallet and the price; refusals come back as
+ * `insufficient_balance` (with the shortfall) or `price_changed`.
+ */
+export async function continueConsultation(chatId: string, choice: ConsultationChoice) {
+  const body =
+    choice.mode === 'package'
+      ? { mode: 'package', packageMinutes: choice.minutes, quotedPrice: choice.price }
+      : { mode: 'per_minute' };
+  if (USE_DUMMY_CONSULTATIONS) {
+    const now = new Date();
+    return choice.mode === 'package'
+      ? { chatId, mode: 'package' as const, endsAt: new Date(now.getTime() + choice.minutes * 60000).toISOString(), serverTime: now.toISOString(), balanceRemaining: DUMMY_WALLET.balance }
+      : { chatId, mode: 'per_minute' as const, perMinuteStartedAt: now.toISOString(), serverTime: now.toISOString(), balanceRemaining: DUMMY_WALLET.balance };
+  }
+  const { data } = await client.post(`/chats/${chatId}/continue`, body);
+  return data as {
+    chatId: string;
+    mode: 'package' | 'per_minute';
+    endsAt?: string;
+    perMinuteStartedAt?: string;
+    serverTime: string;
+    balanceRemaining: number;
   };
 }
 

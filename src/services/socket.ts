@@ -13,7 +13,7 @@
 import { io, type Socket } from 'socket.io-client';
 
 import { API_BASE_URL } from './client';
-import type { PackageView } from '../data/consultPackages';
+import type { ContinueOptions, PackageView } from '../data/consultPackages';
 import { getAccessToken } from './session';
 
 /** socket.io attaches to the server root, not the REST API's `/api/v1` path. */
@@ -34,8 +34,10 @@ export const CHAT_EVENTS = {
   /** The astrologer's own socket dropping/returning while this chat is active — billing pauses for the gap; see backend/services/chat.service.js's pauseSessionsForAstrologer/resumeSessionsForAstrologer. */
   ASTROLOGER_LEFT: 'chat:astrologer_left',
   ASTROLOGER_JOINED: 'chat:astrologer_joined',
-  /** Package sessions: ~30s left, then time up and carrying on per-minute — see backend/services/chat.service.js's tickPackageSession. */
+  /** Package sessions: ~30s left; time up (paused on the seeker's choice); continued with another package; continued per-minute — see backend/services/chat.service.js's tickPackageSession / continueConsultation. */
   PACKAGE_WARNING: 'chat:package_warning',
+  PACKAGE_ENDED: 'chat:package_ended',
+  PACKAGE_EXTENDED: 'chat:package_extended',
   PER_MINUTE_STARTED: 'chat:per_minute_started',
   /** Emitted outside any chat room, to the seeker's own `user:{id}` room — see backend/services/chat.service.js. */
   REQUESTED: 'chat:requested',
@@ -219,6 +221,16 @@ export type PerMinuteStartedPayload = {
   perMinuteStartedAt: string;
   serverTime: string;
   ratePerMinute: number;
+  balanceRemaining?: number;
+};
+export type PackageEndedPayload = ContinueOptions & { chatId: string; pausedSince: string; serverTime: string };
+export type PackageExtendedPayload = {
+  chatId: string;
+  packageMinutes: number;
+  amount: number;
+  endsAt: string;
+  serverTime: string;
+  balanceRemaining?: number;
 };
 type AstrologerJoinedPayload = { chatId: string };
 
@@ -259,7 +271,11 @@ export function subscribeToChat(
     }) => void;
     /** Package sessions: ~30s left on the package (sent only when the wallet covers per-minute after it — otherwise the ordinary low-balance event comes instead). */
     onPackageWarning?: (payload: PackageWarningPayload) => void;
-    /** Package sessions: the package ran out and the session is now billed per minute. */
+    /** Package sessions: the package ran out — paused until the seeker chooses how to continue. */
+    onPackageEnded?: (payload: PackageEndedPayload) => void;
+    /** Package sessions: the seeker continued with another package. */
+    onPackageExtended?: (payload: PackageExtendedPayload) => void;
+    /** Package sessions: the seeker continued per-minute. */
     onPerMinuteStarted?: (payload: PerMinuteStartedPayload) => void;
   },
 ): () => void {
@@ -322,11 +338,19 @@ export function subscribeToChat(
   const onPerMinuteStarted = (payload: PerMinuteStartedPayload) => {
     if (payload?.chatId === chatId) handlers.onPerMinuteStarted?.(payload);
   };
+  const onPackageEnded = (payload: PackageEndedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageEnded?.(payload);
+  };
+  const onPackageExtended = (payload: PackageExtendedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageExtended?.(payload);
+  };
 
   active.on(CHAT_EVENTS.NEW, onMessage);
   active.on(CHAT_EVENTS.TICK, onTick);
   active.on(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
   active.on(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
+  active.on(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
+  active.on(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
   active.on(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
   active.on(CHAT_EVENTS.ENDED, onEnded);
   active.on(CHAT_EVENTS.ASTROLOGER_LEFT, onAstrologerLeft);
@@ -338,6 +362,8 @@ export function subscribeToChat(
     active.off(CHAT_EVENTS.TICK, onTick);
     active.off(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
     active.off(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
+    active.off(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
+    active.off(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
     active.off(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
     active.off(CHAT_EVENTS.ENDED, onEnded);
     active.off(CHAT_EVENTS.ASTROLOGER_LEFT, onAstrologerLeft);

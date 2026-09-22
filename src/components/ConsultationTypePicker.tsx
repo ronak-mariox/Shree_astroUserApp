@@ -21,6 +21,12 @@ type ConsultationTypePickerProps = {
   walletBalance?: number;
   value: ConsultationChoice;
   onChange: (choice: ConsultationChoice) => void;
+  /** The line under a package's total. Defaults to the intake form's wording (charged when the astrologer accepts). */
+  packageNote?: string;
+  /** The line when per-minute is selected. Defaults to "₹X/min, charged each minute while you chat". */
+  perMinuteNote?: string;
+  /** Section heading. */
+  heading?: string;
 };
 
 /**
@@ -35,13 +41,16 @@ export function ConsultationTypePicker({
   walletBalance,
   value,
   onChange,
+  packageNote = 'Charged once when the astrologer accepts. Nothing is charged per minute.',
+  perMinuteNote,
+  heading = 'Choose consultation type',
 }: ConsultationTypePickerProps) {
   const selectedQuote = value.mode === 'package' ? quotes.find(quote => quote.minutes === value.minutes) : undefined;
   const noun = channel === 'call' ? 'call' : 'chat';
 
   return (
     <View style={styles.section}>
-      <Text style={styles.heading}>Choose consultation type</Text>
+      <Text style={styles.heading}>{heading}</Text>
 
       <Pressable
         accessibilityRole="radio"
@@ -113,7 +122,7 @@ export function ConsultationTypePicker({
             <Text accessibilityLabel={`Total ${rupees(selectedQuote.price)}`} style={styles.summaryTotal}>
               Total {rupees(selectedQuote.price)}
             </Text>
-            <Text style={styles.summaryNote}>Charged once when the astrologer accepts. Nothing is charged per minute.</Text>
+            <Text style={styles.summaryNote}>{packageNote}</Text>
             {walletBalance !== undefined && !canAfford(selectedQuote.price, walletBalance) && (
               <Text style={styles.summaryShort}>
                 You need {rupees(shortfallFor(selectedQuote.price, walletBalance))} more in your wallet.
@@ -122,7 +131,7 @@ export function ConsultationTypePicker({
           </>
         ) : (
           <Text style={styles.summaryLine}>
-            {rupees(ratePerMinute)}/min, charged each minute while you {noun}.
+            {perMinuteNote ?? `${rupees(ratePerMinute)}/min, charged each minute while you ${noun}.`}
           </Text>
         )}
       </View>

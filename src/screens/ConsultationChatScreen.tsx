@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandGradient } from '../components/BrandGradient';
 import { EndChatDialog } from '../components/AstrologerBusyDialog';
 import { ChatEndedDialog } from '../components/ChatEndedDialog';
+import { ContinueConsultationSheet } from '../components/ContinueConsultationSheet';
 import { PackageTimerBanner } from '../components/PackageTimerBanner';
 import {
   ConsultationBubble,
@@ -30,8 +31,12 @@ import { LowBalanceBanner } from '../components/LowBalanceBanner';
 import { RechargePopup } from '../components/RechargePopup';
 import { type RechargeOption } from '../data/wallet';
 import {
+  canAfford,
   clockOffsetMs,
   elapsedSeconds,
+  resolveQuotes,
+  type ConsultationChoice,
+  type ContinueOptions,
   formatCountdown,
   secondsUntil,
   type PackageView,
@@ -39,6 +44,7 @@ import {
 import { useApi } from '../hooks/useApi';
 import {
   confirmTopUp,
+  continueConsultation,
   endChat,
   fetchWallet,
   getChatState,
@@ -182,6 +188,10 @@ export function ConsultationChatScreen({
    * this device — so a phone with a wrong clock still shows the right time.
    */
   const [pkg, setPkg] = useState<PackageView>();
+  /** True while the continue choice is being sent — the sheet's buttons are disabled so it can't be sent twice. */
+  const [continuing, setContinuing] = useState(false);
+  /** The amount the recharge popup asks for when opened from the continue choice (the chosen option's price). */
+  const [rechargeMin, setRechargeMin] = useState<number>();
   const clockOffset = useRef(0);
   /** Only there to re-render the package countdowns once a second. */
   const [, setClockTick] = useState(0);
@@ -279,6 +289,38 @@ export function ConsultationChatScreen({
     return () => clearInterval(timer);
   }, [state.data?.startedAt]);
 
+  /**
+   * The package ran out: freeze the clock and block input exactly like a
+   * per-minute balance pause. If nothing at all is affordable, the existing
+   * Low Balance banner and Recharge popup come first; once something is,
+   * the continue sheet asks for approval.
+   */
+  const pauseForChoice = (options: ContinueOptions, since?: string) => {
+    pausedSinceOverride.current = since ? new Date(since).getTime() : null;
+    setSessionPaused(true);
+    if (options.canContinue === false) {
+      setLowBalanceVisible(true);
+      setRechargeVisible(true);
+    } else {
+      setLowBalanceVisible(false);
+    }
+  };
+
+  /** Continued (another package, or per-minute) — the pause and any low-balance notice end. */
+  const resumeAfterChoice = () => {
+    setSessionPaused(false);
+    setLowBalanceVisible(false);
+    setRechargeMin(undefined);
+  };
+
+  // A package session opened (or re-read) while paused on the choice: re-ask.
+  useEffect(() => {
+    const view = state.data?.package;
+    if (state.data?.billingMode === 'package' && view?.phase === 'awaiting_choice' && state.data.status === 'active') {
+      pauseForChoice(view, view.awaitingChoiceSince);
+    }
+  }, [state.data]);
+
   const packageClockRunning = pkg?.phase === 'package';
   useEffect(() => {
     if (!packageClockRunning) {
@@ -308,6 +350,10 @@ export function ConsultationChatScreen({
         /** Package sessions: resync the package clock too — a package event can be missed exactly like a low-balance one. */
         if (payload.package) {
           setPkg(payload.package);
+          if (payload.package.phase === 'awaiting_choice' && payload.status === 'active') {
+            pauseForChoice(payload.package, payload.package.awaitingChoiceSince);
+            return;
+          }
         }
         if (payload.paused) {
           pausedSinceOverride.current = payload.pausedSince ? new Date(payload.pausedSince).getTime() : Date.now();
@@ -348,13 +394,35 @@ export function ConsultationChatScreen({
         clockOffset.current = clockOffsetMs(payload.serverTime);
         setPkg(current => (current ? { ...current, endsAt: payload.endsAt } : current));
       },
-      /** The package ran out: from here it's an ordinary per-minute chat (ticks, low balance, recharge — all the existing handlers above). */
+      /** The package ran out — paused until the seeker approves how to continue. */
+      onPackageEnded: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        applyLiveBalance(payload.balanceRemaining);
+        setPkg(current => ({ ...(current ?? {}), ...payload, phase: 'awaiting_choice', awaitingChoiceSince: payload.pausedSince }));
+        pauseForChoice(payload);
+      },
+      /** Continued with another package (this device or another of the seeker's) — a fresh countdown. */
+      onPackageExtended: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        /** Only a figure the event actually carries — a reload here could land after a newer tick and roll the pill back. */
+        if (payload.balanceRemaining !== undefined) {
+          applyLiveBalance(payload.balanceRemaining);
+        }
+        setPkg(current => ({ ...(current ?? {}), phase: 'package', endsAt: payload.endsAt, awaitingChoiceSince: undefined, warningSeconds: current?.warningSeconds }));
+        resumeAfterChoice();
+      },
+      /** Continued per-minute: from here it's an ordinary per-minute chat (ticks, low balance, recharge — all the existing handlers above). */
       onPerMinuteStarted: payload => {
+        if (payload.balanceRemaining !== undefined) {
+          applyLiveBalance(payload.balanceRemaining);
+        }
         setPkg(current => ({
           ...(current ?? {}),
           phase: 'per_minute',
           perMinuteStartedAt: payload.perMinuteStartedAt,
+          awaitingChoiceSince: undefined,
         }));
+        resumeAfterChoice();
       },
       onEnded: () => {
         setClosed(true);
@@ -415,6 +483,47 @@ export function ConsultationChatScreen({
    * the session actually pauses.
    */
   const composerLocked = closed || sessionPaused || (lowBalanceVisible && pkg?.phase !== 'package');
+  /** Paused after a package, with something affordable: ask for approval (hidden while the recharge popup is up — one modal at a time). */
+  const awaitingChoice = !closed && pkg?.phase === 'awaiting_choice';
+  const continueSheetVisible = awaitingChoice && pkg?.canContinue !== false && !rechargeVisible;
+
+  const chooseContinue = async (choice: ConsultationChoice) => {
+    if (continuing) {
+      return;
+    }
+    const price = choice.mode === 'package' ? choice.price : state.data?.ratePerMinute ?? 0;
+    if (!canAfford(price, wallet.data?.balance ?? pkg?.balanceRemaining)) {
+      setRechargeMin(price);
+      setRechargeVisible(true);
+      return;
+    }
+    setContinuing(true);
+    try {
+      const result = await continueConsultation(chatId, choice);
+      clockOffset.current = clockOffsetMs(result.serverTime);
+      applyLiveBalance(result.balanceRemaining);
+      setPkg(current =>
+        result.mode === 'package'
+          ? { ...(current ?? {}), phase: 'package', endsAt: result.endsAt, awaitingChoiceSince: undefined }
+          : { ...(current ?? {}), phase: 'per_minute', perMinuteStartedAt: result.perMinuteStartedAt, awaitingChoiceSince: undefined },
+      );
+      resumeAfterChoice();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'insufficient_balance') {
+        setRechargeMin(Number(error.details?.price ?? price));
+        setRechargeVisible(true);
+      } else if (error instanceof ApiError && (error.code === 'price_changed' || error.code === 'not_awaiting_choice')) {
+        state.reload();
+        if (error.code === 'price_changed') {
+          Alert.alert('Price updated', error.message);
+        }
+      } else {
+        Alert.alert('Could not continue', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+      }
+    } finally {
+      setContinuing(false);
+    }
+  };
 
   const send = async () => {
     const body = draft.trim();
@@ -470,7 +579,12 @@ export function ConsultationChatScreen({
       await confirmTopUp(pending.transactionId);
       await wallet.reload();
       setRechargeVisible(false);
+      setRechargeMin(undefined);
       setLowBalanceVisible(false);
+      /** Paused after a package: re-read the options against the new balance, then ask for approval. */
+      if (pkg?.phase === 'awaiting_choice') {
+        state.reload();
+      }
     } catch (error) {
       Alert.alert(
         'Could not add money',
@@ -513,9 +627,11 @@ export function ConsultationChatScreen({
             {astrologerName}
           </Text>
           <Text style={styles.elapsed}>
-            {pkg?.phase === 'package'
-              ? `(${formatCountdown(packageSecondsLeft)} left)`
-              : elapsedLabel(elapsed)}
+            {awaitingChoice
+              ? '(Paused)'
+              : pkg?.phase === 'package'
+                ? `(${formatCountdown(packageSecondsLeft)} left)`
+                : elapsedLabel(elapsed)}
           </Text>
         </View>
 
@@ -540,7 +656,7 @@ export function ConsultationChatScreen({
       </View>
 
       {packageBannerVisible && (
-        <PackageTimerBanner secondsLeft={packageSecondsLeft} ratePerMinute={state.data?.ratePerMinute ?? 0} />
+        <PackageTimerBanner secondsLeft={packageSecondsLeft} />
       )}
 
       {lowBalanceVisible && (
@@ -570,10 +686,27 @@ export function ConsultationChatScreen({
         }}
       />
 
+      <ContinueConsultationSheet
+        visible={continueSheetVisible}
+        ratePerMinute={pkg?.ratePerMinute ?? state.data?.ratePerMinute ?? 0}
+        quotes={resolveQuotes(pkg?.packages, pkg?.ratePerMinute ?? state.data?.ratePerMinute, wallet.data?.balance ?? pkg?.balanceRemaining)}
+        balance={wallet.data?.balance ?? pkg?.balanceRemaining}
+        busy={continuing}
+        onContinue={chooseContinue}
+        onEnd={() => {
+          if (!continuing) {
+            confirmEndChat();
+          }
+        }}
+      />
+
       <RechargePopup
         visible={rechargeVisible}
-        minRequired={state.data?.ratePerMinute}
-        onDismiss={() => setRechargeVisible(false)}
+        minRequired={rechargeMin ?? state.data?.ratePerMinute}
+        onDismiss={() => {
+          setRechargeVisible(false);
+          setRechargeMin(undefined);
+        }}
         onPay={handleRecharge}
         loading={payingRecharge}
       />
