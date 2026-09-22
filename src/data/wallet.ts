@@ -27,6 +27,27 @@ export const quickSelectAmounts = [
 
 export const amountLimits = { min: 100, max: 50000 };
 
+export type RechargeOption = {
+  amount: number;
+  /** Credited alongside `amount` once payment succeeds — see services/api.ts's startTopUp/confirmTopUp; there is no real payment gateway yet, so this is the whole recharge program, not just a display number. */
+  bonus: number;
+  /** The one tile Figma marks "Most Popular" (node 180:151580) and the low-balance popup selects by default. */
+  popular?: boolean;
+};
+
+/** The low-balance popup's fixed recharge tiers (Figma node 180:151551). */
+export const rechargeOptions: ReadonlyArray<RechargeOption> = [
+  { amount: 20, bonus: 10 },
+  { amount: 50, bonus: 25 },
+  { amount: 100, bonus: 50 },
+  { amount: 200, bonus: 100 },
+  { amount: 500, bonus: 250, popular: true },
+  { amount: 1000, bonus: 150 },
+];
+
+/** Shown as the popup's payment breakdown — not actually collected anywhere yet (see the note on RechargeOption). */
+export const RECHARGE_GST_PERCENT = 18;
+
 export type Transaction = {
   id: string;
   title: string;

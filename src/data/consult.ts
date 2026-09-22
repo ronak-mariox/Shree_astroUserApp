@@ -15,7 +15,6 @@ export const consultPalette = {
   chipBorder: '#C4C4C4',
   chipIdleText: '#959595',
   wait: '#FF0C0C',
-  free: '#14A50E',
   banner: '#7FD66F',
   callAccent: '#F65C02',
   callBorder: 'rgba(246, 92, 2, 0.4)',
@@ -51,11 +50,25 @@ export const consultCategories: ReadonlyArray<{
   { key: 'health', label: 'Health', width: 54 },
 ];
 
-export const consultBanner = {
-  headline: 'When Will I Get Marriage ?',
-  image: require('../assets/images/promo-marriage.png') as ImageSourcePropType,
-  slides: 3,
+export type ConsultBannerId = 'marriage' | 'love' | 'wealth';
+
+export type ConsultBannerSlide = {
+  id: ConsultBannerId;
+  headline: string;
+  /** Only the original Figma export is a baked-in image; the rest are drawn live — see `ConsultBannerCard`. */
+  image?: ImageSourcePropType;
 };
+
+/** The Consult tab's promo carousel, above the astrologer list (node 180:90174). */
+export const consultBanners: ReadonlyArray<ConsultBannerSlide> = [
+  {
+    id: 'marriage',
+    headline: 'When Will I Get Marriage ?',
+    image: require('../assets/images/promo-marriage.png') as ImageSourcePropType,
+  },
+  { id: 'love', headline: 'When Will I Find True Love ?' },
+  { id: 'wealth', headline: 'When Will I Become Rich ?' },
+];
 
 /**
  * Each speciality pill carries its own pastel fill and its drawn width
@@ -90,7 +103,7 @@ export type ConsultAstrologer = {
   wait?: string;
   /** Struck-through list price. */
   was: string;
-  /** What the seeker actually pays — "Free" while free minutes remain. */
+  /** What the seeker actually pays, after any offer discount. */
   now: string;
 };
 

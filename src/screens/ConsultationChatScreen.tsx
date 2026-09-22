@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -21,15 +22,25 @@ import {
   ConsultationBubble,
   type ConsultationMessage,
 } from '../components/ConsultationBubble';
-import {
-  EmojiIcon,
-  // MicIcon,
-  // PaperclipIcon,
-  WalletPillIcon,
-} from '../components/icons/ChatRoomIcons';
+import { WalletPillIcon } from '../components/icons/ChatRoomIcons';
 import { CloseMarkIcon } from '../components/icons/CloseMarkIcon';
 import { SendIcon } from '../components/icons/SendIcon';
-import { openingMessages } from '../data/chatIntake';
+import { LowBalanceBanner } from '../components/LowBalanceBanner';
+import { RechargePopup } from '../components/RechargePopup';
+import { type RechargeOption } from '../data/wallet';
+import { useApi } from '../hooks/useApi';
+import {
+  confirmTopUp,
+  endChat,
+  fetchWallet,
+  getChatState,
+  rupees,
+  sendMessage,
+  startTopUp,
+  subscribeToConsultation,
+  type ChatMessage,
+} from '../services/api';
+import { ApiError } from '../services/client';
 import {
   colors,
   designFrame,
@@ -50,16 +61,15 @@ const SEND_SIZE = 46;
 const SEND_ICON = 20;
 
 type ConsultationChatScreenProps = {
+  /** The session POST /chats created — every read and write below is scoped to it. */
+  chatId: string;
   /** Who the seeker is talking to. */
   astrologerName: string;
   photo?: ImageSourcePropType;
-  /** Printed in the header's pill. */
-  walletBalance?: string;
-  /** What the intake form filed, opening the conversation. */
-  intakeLines?: ReadonlyArray<string>;
-  /** The red cross — ends the session. */
+  /** The red cross, confirmed — ends the session for good. */
   onEnd?: () => void;
-  onWalletPress?: () => void;
+  /** "Yes, Start Chat" on the post-end sheet — opens a fresh request to the same astrologer. */
+  onStartNewChat?: () => void;
 };
 
 /** "04:58 mins" — how the header prints the running session. */
@@ -68,8 +78,8 @@ const elapsedLabel = (seconds: number) =>
     seconds % 60,
   ).padStart(2, '0')} mins)`;
 
-const timeNow = () =>
-  new Date()
+const timeOf = (iso?: string) =>
+  (iso ? new Date(iso) : new Date())
     .toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
@@ -77,53 +87,323 @@ const timeNow = () =>
     })
     .toUpperCase();
 
+/** What arrives over the socket (or the REST fallback) -> what the transcript prints. */
+const toBubble = (message: ChatMessage): ConsultationMessage => ({
+  id: message.id,
+  from:
+    message.senderRole === 'user'
+      ? 'seeker'
+      : message.senderRole === 'astrologer'
+        ? 'astrologer'
+        : 'system',
+  lines: (message.content?.text ?? '').split('\n'),
+  time: timeOf(message.createdAt),
+});
+
 /**
  * The live consultation, opened once the astrologer accepts: their name and the
  * running timer over the balance the session is spending, the transcript, and
  * the composer.
+ *
+ * Everything here is a read of, or a write to, the real session — the minute
+ * meter, the transcript, and the balance all come from the server (see
+ * services/chat.service.js and services/socket.ts); nothing on this screen
+ * decides for itself when a minute has passed or what anything costs.
+ *
  * Figma: node 180:118720.
  */
 export function ConsultationChatScreen({
+  chatId,
   astrologerName,
   photo,
-  walletBalance = '₹ 1000',
-  intakeLines,
   onEnd,
-  onWalletPress,
+  onStartNewChat,
 }: ConsultationChatScreenProps) {
   const insets = useSafeAreaInsets();
   const transcript = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const [messages, setMessages] = useState<ConsultationMessage[]>(() =>
-    openingMessages(intakeLines, astrologerName),
-  );
+
+  const state = useApi(() => getChatState(chatId), [chatId]);
+  const wallet = useApi(() => fetchWallet(), [chatId]);
+
+  /**
+   * Every tick/low-balance push already carries the seeker's post-debit
+   * balance — pushing it straight into wallet state shows it instantly,
+   * with no extra round trip. Falls back to a reload only if the server
+   * ever omits the figure (an older server, or a free-minute edge case).
+   */
+  const applyLiveBalance = (balanceRemaining: number | undefined) => {
+    if (balanceRemaining === undefined) {
+      wallet.reload();
+      return;
+    }
+    wallet.setData((current: typeof wallet.data) => (current ? { ...current, balance: balanceRemaining } : current));
+  };
+
+  /**
+   * The transcript, oldest first — including the seeker's own intake, which
+   * `requestChat` now posts as the opening message (services/chat.service.js),
+   * so it arrives here the same way as everything else: the join backfill
+   * below, not a bubble synthesised locally from the form just submitted.
+   */
+  const [messages, setMessages] = useState<ConsultationMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [endChatVisible, setEndChatVisible] = useState(false);
   const [chatEndedVisible, setChatEndedVisible] = useState(false);
+  /** Shown once the live tick warns the balance won't cover much more — cleared the moment a normal tick bills fine again. */
+  const [lowBalanceVisible, setLowBalanceVisible] = useState(false);
+  /**
+   * True only once billing has actually paused (the wallet couldn't cover a
+   * real minute at its cutoff) — distinct from `lowBalanceVisible`, which
+   * also covers the earlier, non-blocking check-ahead/proactive warnings
+   * where the session is still running fine. Freezes the elapsed clock below
+   * for exactly as long as this stays true; a top-up resumes both.
+   */
+  const [sessionPaused, setSessionPaused] = useState(false);
+  const [rechargeVisible, setRechargeVisible] = useState(false);
+  /** True while a chosen recharge tile is still being paid for — disables the popup's own button so a second tap can't double-charge. */
+  const [payingRecharge, setPayingRecharge] = useState(false);
+  /** Set the moment the session is actually over, however that happens (this side, the other side, or the server's own grace-period cutoff) — the composer stops taking input right away, whether or not the dialog above it has been dismissed yet. */
+  const [closed, setClosed] = useState(false);
 
-  // The session is charged by the minute, so the header counts it up.
-  useEffect(() => {
-    const tick = setInterval(() => setElapsed(current => current + 1), 1000);
-    return () => clearInterval(tick);
-  }, []);
+  /** Backfilled history and live pushes can overlap by one message at a reconnect; this is what keeps that from showing twice. */
+  const seenMessageIds = useRef(new Set<string>());
 
-  const send = () => {
-    const body = draft.trim();
-    if (body.length === 0) {
+  /**
+   * A message this screen posted itself arrives back over the same live
+   * subscription that carries the other side's — the server broadcasts a
+   * send to the whole room, sender included. Rather than show it twice (once
+   * optimistically, once on echo), `send` below posts an optimistic bubble
+   * keyed by `clientMessageId`; when the real one comes back carrying that
+   * same id, it replaces the optimistic bubble in place instead of adding a
+   * second one.
+   */
+  const appendMessage = useCallback((message: ChatMessage) => {
+    if (seenMessageIds.current.has(message.id)) {
       return;
     }
+    seenMessageIds.current.add(message.id);
 
+    setMessages(current => {
+      const pendingIndex = message.clientMessageId
+        ? current.findIndex(entry => entry.id === message.clientMessageId)
+        : -1;
+      const bubble = toBubble(message);
+      if (pendingIndex === -1) {
+        return [...current, bubble];
+      }
+      const next = [...current];
+      next[pendingIndex] = bubble;
+      return next;
+    });
+  }, []);
+
+  /**
+   * How long the clock below has spent frozen so far (`pausedAccumMs`), and
+   * when the current freeze began (`pausedSince`, null while running) — kept
+   * in refs rather than state since nothing needs to re-render off them
+   * directly, only off the `elapsed` seconds they feed into.
+   */
+  const pausedAccumMs = useRef(0);
+  const pausedSince = useRef<number | null>(null);
+  /**
+   * Set just before `setSessionPaused(true)` when the pause actually began
+   * earlier than "now" — a (re)join that discovers an already-paused session
+   * (see `onRejoinState` below) backdates to the server's own
+   * `balanceExhaustedAt` instead of freezing from whenever this screen
+   * happened to notice, so the frozen value is exactly right, not inflated
+   * by however long the client was out of the loop.
+   */
+  const pausedSinceOverride = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (sessionPaused) {
+      pausedSince.current = pausedSinceOverride.current ?? Date.now();
+      pausedSinceOverride.current = null;
+    } else if (pausedSince.current !== null) {
+      pausedAccumMs.current += Date.now() - pausedSince.current;
+      pausedSince.current = null;
+    }
+  }, [sessionPaused]);
+
+  // The header's running clock: real elapsed time since the server's own
+  // startedAt, minus however long it's spent paused for a low balance —
+  // ticked locally so it doesn't need a round trip every second.
+  useEffect(() => {
+    const startedAt = state.data?.startedAt;
+    if (!startedAt) {
+      return;
+    }
+    const started = new Date(startedAt).getTime();
+    const tick = () => {
+      if (pausedSince.current !== null) {
+        /** Frozen — hold the last value rather than keep advancing it. */
+        return;
+      }
+      setElapsed(Math.max(0, Math.floor((Date.now() - started - pausedAccumMs.current) / 1000)));
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [state.data?.startedAt]);
+
+  // The live half of the session: the transcript, the minute meter, low-balance
+  // warnings, and however the session ends.
+  useEffect(() => {
+    const unsubscribe = subscribeToConsultation(chatId, 0, {
+      onMessage: appendMessage,
+      /**
+       * Fires on every (re)join, including the very first one — a socket
+       * that's already connected before this screen mounts still runs this
+       * immediately. Resyncs to the session's true current pause state,
+       * since a live low-balance push can be missed entirely by a socket
+       * that was briefly disconnected (backgrounding the app, a dropped
+       * connection) and never redelivered once it reconnects.
+       */
+      onRejoinState: payload => {
+        if (payload.paused) {
+          pausedSinceOverride.current = payload.pausedSince ? new Date(payload.pausedSince).getTime() : Date.now();
+          setSessionPaused(true);
+          setLowBalanceVisible(true);
+        } else {
+          setSessionPaused(false);
+          // Left alone otherwise — a non-blocking warning banner may legitimately still be up, and this has no authority over that.
+        }
+      },
+      onTick: payload => {
+        applyLiveBalance(payload.balanceRemaining);
+        setLowBalanceVisible(false);
+        setSessionPaused(false);
+      },
+      /**
+       * The proactive "running low" and check-ahead warnings (`paused`
+       * undefined/false with `exhausted: false`) show the same banner as the
+       * real pause and keep the chat running exactly as before — only an
+       * actual `paused: true` freezes the clock and blocks the composer.
+       * `paused: false` is also how a resumed session (a top-up cleared it —
+       * chat.service.js's resumePausedSessionsForUser) announces itself
+       * instantly, without waiting on the next tick to arrive.
+       */
+      onLowBalance: payload => {
+        applyLiveBalance(payload.balanceRemaining);
+        if (payload.paused === false) {
+          setLowBalanceVisible(false);
+          setSessionPaused(false);
+          return;
+        }
+        setLowBalanceVisible(true);
+        if (payload.paused) {
+          setSessionPaused(true);
+        }
+      },
+      onEnded: () => {
+        setClosed(true);
+        setEndChatVisible(false);
+        setChatEndedVisible(true);
+        wallet.reload();
+      },
+      /**
+       * The astrologer's own connection dropping — not the session ending;
+       * `onEnded` still fires separately (reason `astrologer_disconnected`)
+       * if they never come back in time. A plain system line in the
+       * transcript, same voice as the server's own "Consultation started." —
+       * this one is purely local, nothing to persist or replay on rejoin.
+       */
+      onAstrologerLeft: payload => {
+        setMessages(current => [
+          ...current,
+          {
+            id: `system-astrologer-left-${Date.now()}`,
+            from: 'system',
+            lines: [`${astrologerName} disconnected. Waiting up to ${payload.reconnectSeconds}s for them to reconnect…`],
+            time: timeOf(),
+          },
+        ]);
+      },
+      onAstrologerJoined: () => {
+        setMessages(current => [
+          ...current,
+          {
+            id: `system-astrologer-joined-${Date.now()}`,
+            from: 'system',
+            lines: [`${astrologerName} is back.`],
+            time: timeOf(),
+          },
+        ]);
+      },
+    });
+
+    return unsubscribe;
+    // wallet.reload is a fresh closure every render; only chatId should restart the subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, appendMessage]);
+
+  const send = async () => {
+    const body = draft.trim();
+    if (body.length === 0 || closed || lowBalanceVisible) {
+      return;
+    }
+    setDraft('');
+
+    /** Shown right away; appendMessage above replaces it once the server echoes the real message back. */
+    const clientMessageId = `local-${Date.now()}`;
     setMessages(current => [
       ...current,
-      {
-        id: `sent-${current.length}`,
-        from: 'seeker',
-        lines: body.split('\n'),
-        time: timeNow(),
-      },
+      { id: clientMessageId, from: 'seeker', lines: body.split('\n'), time: timeOf() },
     ]);
-    setDraft('');
+
+    try {
+      await sendMessage(chatId, body, clientMessageId);
+    } catch (error) {
+      Alert.alert(
+        'Message not sent',
+        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      );
+    }
   };
+
+  const confirmEndChat = async () => {
+    setEndChatVisible(false);
+    try {
+      await endChat(chatId, 'user_ended');
+      setClosed(true);
+      setChatEndedVisible(true);
+    } catch (error) {
+      Alert.alert(
+        'Could not end chat',
+        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      );
+    }
+  };
+
+  /**
+   * No payment gateway is wired up yet (see services/api.ts's startTopUp),
+   * so this credits `amount + bonus` straight away — the same "confirm
+   * immediately" shortcut every top-up in the app takes today. Crediting
+   * only `amount` would break the popup's own "you'll get ₹X" promise the
+   * moment a real gateway (and a real bonus ledger) exist, this is the one
+   * spot that needs to change to actually separate what was paid from what
+   * was credited.
+   */
+  const handleRecharge = async (option: RechargeOption) => {
+    setPayingRecharge(true);
+    try {
+      const pending = await startTopUp(option.amount + option.bonus);
+      await confirmTopUp(pending.transactionId);
+      await wallet.reload();
+      setRechargeVisible(false);
+      setLowBalanceVisible(false);
+    } catch (error) {
+      Alert.alert(
+        'Could not add money',
+        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setPayingRecharge(false);
+    }
+  };
+
+  const walletBalance = rupees(wallet.data?.balance ?? 0);
 
   return (
     <View style={styles.screen}>
@@ -157,21 +437,19 @@ export function ConsultationChatScreen({
           <Text style={styles.elapsed}>{elapsedLabel(elapsed)}</Text>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Wallet balance ${walletBalance}`}
-          onPress={onWalletPress}
-          style={({ pressed }) => [styles.wallet, pressed && styles.pressed]}
-        >
+        {/* Read-only here — the running balance during a live chat, not a link to the wallet screen. */}
+        <View accessibilityLabel={`Wallet balance ${walletBalance}`} style={styles.wallet}>
           <View style={styles.walletIcon}>
             <WalletPillIcon size={WALLET_ICON} />
           </View>
           <Text style={styles.walletLabel}>{walletBalance}</Text>
-        </Pressable>
+        </View>
 
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="End the consultation"
+          accessibilityState={{ disabled: closed }}
+          disabled={closed}
           onPress={() => setEndChatVisible(true)}
           style={({ pressed }) => [styles.end, pressed && styles.pressed]}
         >
@@ -179,24 +457,39 @@ export function ConsultationChatScreen({
         </Pressable>
       </View>
 
+      {lowBalanceVisible && (
+        <LowBalanceBanner
+          balance={wallet.data?.balance ?? 0}
+          onRecharge={() => setRechargeVisible(true)}
+        />
+      )}
+
       <EndChatDialog
         visible={endChatVisible}
         onDismiss={() => setEndChatVisible(false)}
         onStay={() => setEndChatVisible(false)}
-        onEndChat={() => {
-          setEndChatVisible(false);
-          setChatEndedVisible(true);
-        }}
+        onEndChat={confirmEndChat}
       />
 
       <ChatEndedDialog
         visible={chatEndedVisible}
         onDismiss={() => setChatEndedVisible(false)}
-        onResume={() => setChatEndedVisible(false)}
+        onResume={() => {
+          setChatEndedVisible(false);
+          onStartNewChat?.();
+        }}
         onEnd={() => {
           setChatEndedVisible(false);
           onEnd?.();
         }}
+      />
+
+      <RechargePopup
+        visible={rechargeVisible}
+        minRequired={state.data?.ratePerMinute}
+        onDismiss={() => setRechargeVisible(false)}
+        onPay={handleRecharge}
+        loading={payingRecharge}
       />
 
       <KeyboardAvoidingView
@@ -219,7 +512,6 @@ export function ConsultationChatScreen({
           style={[styles.composerRow, { paddingBottom: spacing.md + insets.bottom }]}
         >
           <View style={styles.composer}>
-            <EmojiIcon />
             <TextInput
               accessibilityLabel="Type message"
               value={draft}
@@ -227,29 +519,16 @@ export function ConsultationChatScreen({
               placeholder="Type message..."
               placeholderTextColor={colors.text.composerHint}
               style={styles.input}
+              editable={!closed && !lowBalanceVisible}
               multiline
             />
-            {/* <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Record a voice note"
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <MicIcon />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Attach a file"
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <PaperclipIcon />
-            </Pressable> */}
           </View>
 
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Send"
-            accessibilityState={{ disabled: draft.trim().length === 0 }}
-            disabled={draft.trim().length === 0}
+            accessibilityState={{ disabled: draft.trim().length === 0 || closed || lowBalanceVisible }}
+            disabled={draft.trim().length === 0 || closed || lowBalanceVisible}
             onPress={send}
             style={({ pressed }) => [styles.send, pressed && styles.pressed]}
           >

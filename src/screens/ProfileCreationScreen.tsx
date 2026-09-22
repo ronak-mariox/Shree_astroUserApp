@@ -17,12 +17,16 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { StepIndicator } from '../components/StepIndicator';
 import type { PhotoAsset } from '../services/auth';
 import {
+  digitsOf,
   isFormValid,
   validateEmail,
   validateName,
   validatePhone,
   type FieldError,
 } from '../utils/validation';
+
+/** A bare 10-digit number, or one with a leading 91 country code — validatePhone accepts both, so typing is capped here at whichever is longer, not just 10. */
+const MAX_PHONE_DIGITS = 12;
 import { colors, designFrame, spacing, typography } from '../theme';
 
 /** Top padding Figma drew, measured from the top of the status bar. */
@@ -45,6 +49,14 @@ type ProfileCreationScreenProps = {
    * an asset or `undefined`.
    */
   onPickPhoto?: () => Promise<PhotoAsset | undefined> | PhotoAsset | undefined | void;
+  /**
+   * What was already typed here, when the wizard's next step (Birth Details)
+   * sent the user back — App.tsx keeps this screen's own values alive in its
+   * lifted `signUp` state across the remount that happens every time the
+   * route flips back to 'profileCreation'. Undefined the first time through.
+   */
+  initialProfile?: Profile;
+  initialPhoto?: PhotoAsset;
 };
 
 /**
@@ -54,16 +66,18 @@ type ProfileCreationScreenProps = {
 export function ProfileCreationScreen({
   onContinue,
   onPickPhoto,
+  initialProfile,
+  initialPhoto,
 }: ProfileCreationScreenProps) {
   const insets = useSafeAreaInsets();
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [gender, setGender] = useState<Gender>();
+  const [fullName, setFullName] = useState(initialProfile?.fullName ?? '');
+  const [email, setEmail] = useState(initialProfile?.email ?? '');
+  const [phoneNumber, setPhoneNumber] = useState(initialProfile?.phoneNumber ?? '');
+  const [gender, setGender] = useState<Gender | undefined>(initialProfile?.gender);
   /** Errors stay hidden until Continue is pressed, then follow every keystroke. */
   const [submitted, setSubmitted] = useState(false);
   /** The chosen photo, carried to the register call at the end of the wizard. */
-  const [photo, setPhoto] = useState<PhotoAsset>();
+  const [photo, setPhoto] = useState<PhotoAsset | undefined>(initialPhoto);
 
   const errors: Record<string, FieldError> = {
     fullName: validateName(fullName),
@@ -73,6 +87,13 @@ export function ProfileCreationScreen({
   };
   const shown = (field: keyof typeof errors) =>
     submitted ? errors[field] : undefined;
+
+  /** Stops well past what a real number could ever need, rather than the field accepting keystrokes forever. */
+  const handlePhoneChange = (text: string) => {
+    if (digitsOf(text).length <= MAX_PHONE_DIGITS) {
+      setPhoneNumber(text);
+    }
+  };
 
   const handlePickPhoto = async () => {
     /**
@@ -156,7 +177,7 @@ export function ProfileCreationScreen({
             <FormField
               label="Phone Number"
               value={phoneNumber}
-              onChangeText={setPhoneNumber}
+              onChangeText={handlePhoneChange}
               placeholder="+91 98765 43210"
               keyboardType="phone-pad"
               autoComplete="tel"

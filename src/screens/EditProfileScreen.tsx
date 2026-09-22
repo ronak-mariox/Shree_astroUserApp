@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -26,12 +26,13 @@ import {
   YEAR_COLUMN,
 } from '../data/chatIntake';
 import { account } from '../data/profile';
+import type { PhotoAsset } from '../services/auth';
+import { ApiError } from '../services/client';
 import {
   isFormValid,
   validateDateOfBirth,
   validateEmail,
   validateName,
-  validatePhone,
   validatePlace,
   validateTimeOfBirth,
   type FieldError,
@@ -43,6 +44,29 @@ import {
   spacing,
   typography,
 } from '../theme';
+
+/** What the screen prefills from — the caller's real, signed-in profile. */
+export type EditableProfile = {
+  fullName: string;
+  email: string;
+  /** Display-only — the phone number is not editable here (see onSave doc). */
+  phone: string;
+  dateOfBirth: string;
+  timeOfBirth: string;
+  placeOfBirth: string;
+  gender?: Gender;
+  avatarUrl?: string;
+};
+
+/** The fields this screen is actually allowed to change. No `phone`: see onSave. */
+export type ProfileChanges = {
+  fullName: string;
+  email: string;
+  gender?: Gender;
+  dateOfBirth: string;
+  timeOfBirth: string;
+  placeOfBirth: string;
+};
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
@@ -67,9 +91,17 @@ const BADGE_SIZE = 29.993;
 const BADGE_OFFSET = 62;
 
 type EditProfileScreenProps = {
+  /** The signed-in user's current details. Falls back to the design fixture when absent. */
+  initial?: EditableProfile;
   onBack?: () => void;
-  onSave?: () => void;
-  onPickPhoto?: () => void;
+  /**
+   * Saves the form. `phone` is deliberately not part of `ProfileChanges` —
+   * the backend does not let this endpoint touch it: changing a phone number
+   * means proving the new one with an OTP, a flow of its own that does not
+   * exist yet, so the field below is shown but not editable.
+   */
+  onSave?: (changes: ProfileChanges, photo?: PhotoAsset) => Promise<void> | void;
+  onPickPhoto?: () => Promise<PhotoAsset | undefined>;
 };
 
 /**
@@ -80,27 +112,57 @@ type EditProfileScreenProps = {
  * here rather than black.
  */
 export function EditProfileScreen({
+  initial,
   onBack,
   onSave,
   onPickPhoto,
 }: EditProfileScreenProps) {
   const insets = useSafeAreaInsets();
-  const [fullName, setFullName] = useState(account.name);
-  const [email, setEmail] = useState(account.email);
-  const [phone, setPhone] = useState(account.phone);
-  const [dateOfBirth, setDateOfBirth] = useState(account.dateOfBirth);
-  const [timeOfBirth, setTimeOfBirth] = useState(account.timeOfBirth);
-  const [placeOfBirth, setPlaceOfBirth] = useState(account.placeOfBirth);
-  const [gender, setGender] = useState<Gender>('male');
+  const [fullName, setFullName] = useState(initial?.fullName ?? account.name);
+  const [email, setEmail] = useState(initial?.email ?? account.email);
+  const phone = initial?.phone ?? account.phone;
+  const [dateOfBirth, setDateOfBirth] = useState(initial?.dateOfBirth ?? account.dateOfBirth);
+  const [timeOfBirth, setTimeOfBirth] = useState(initial?.timeOfBirth ?? account.timeOfBirth);
+  const [placeOfBirth, setPlaceOfBirth] = useState(initial?.placeOfBirth ?? account.placeOfBirth);
+  const [gender, setGender] = useState<Gender>(initial?.gender ?? 'male');
+  /** A freshly picked photo, previewed here until Save sends it up. */
+  const [photo, setPhoto] = useState<PhotoAsset>();
   /** Errors stay hidden until Save is pressed, then follow every keystroke. */
   const [submitted, setSubmitted] = useState(false);
+  /** True while the change is being sent, so Save cannot be pressed twice. */
+  const [saving, setSaving] = useState(false);
+  /** What the server refused with — a duplicate email, or being unreachable. */
+  const [saveError, setSaveError] = useState<string>();
   /** Whether the Date of Birth wheel is open. */
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  /**
+   * `useState(initial?.fullName ?? account.name)` above only reads `initial`
+   * on the very first render — the real profile (`GET /users/me`) is fetched
+   * asynchronously in the app shell, so if this screen is reached before that
+   * resolves, every field would otherwise lock onto the design fixture
+   * forever, even after the real data arrives a moment later. This hydrates
+   * the form once real data shows up — guarded so it never fires again after
+   * that (a fresh `initial` object identity on every parent render would
+   * otherwise wipe out whatever the user is mid-typing).
+   */
+  const hydrated = useRef(Boolean(initial));
+  useEffect(() => {
+    if (hydrated.current || !initial) {
+      return;
+    }
+    hydrated.current = true;
+    setFullName(initial.fullName);
+    setEmail(initial.email);
+    setDateOfBirth(initial.dateOfBirth);
+    setTimeOfBirth(initial.timeOfBirth);
+    setPlaceOfBirth(initial.placeOfBirth);
+    setGender(initial.gender ?? 'male');
+  }, [initial]);
 
   const errors: Record<string, FieldError> = {
     fullName: validateName(fullName),
     email: validateEmail(email),
-    phone: validatePhone(phone),
     dateOfBirth: validateDateOfBirth(dateOfBirth),
     timeOfBirth: validateTimeOfBirth(timeOfBirth),
     placeOfBirth: validatePlace(placeOfBirth),
@@ -108,12 +170,35 @@ export function EditProfileScreen({
   const shown = (field: keyof typeof errors) =>
     submitted ? errors[field] : undefined;
 
-  const handleSave = () => {
+  const handlePickPhoto = async () => {
+    const picked = await onPickPhoto?.();
+    if (picked) {
+      setPhoto(picked);
+    }
+  };
+
+  const handleSave = async () => {
     setSubmitted(true);
-    if (!isFormValid(errors)) {
+    setSaveError(undefined);
+    if (!isFormValid(errors) || saving) {
       return;
     }
-    onSave?.();
+
+    setSaving(true);
+    try {
+      await onSave?.(
+        { fullName, email, gender, dateOfBirth, timeOfBirth, placeOfBirth },
+        photo,
+      );
+    } catch (error) {
+      setSaveError(
+        error instanceof ApiError
+          ? error.message
+          : 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -149,12 +234,22 @@ export function EditProfileScreen({
 
             <View style={styles.avatarWrapper}>
               <View style={styles.avatar}>
-                <Image source={account.avatarPhoto} style={styles.avatarImage} resizeMode="cover" />
+                <Image
+                  source={
+                    photo?.uri
+                      ? { uri: photo.uri }
+                      : initial?.avatarUrl
+                      ? { uri: initial.avatarUrl }
+                      : account.avatarPhoto
+                  }
+                  style={styles.avatarImage}
+                  resizeMode="cover"
+                />
               </View>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Change profile photo"
-                onPress={onPickPhoto}
+                onPress={handlePickPhoto}
                 style={({ pressed }) => [
                   styles.badge,
                   pressed && styles.pressed,
@@ -185,10 +280,10 @@ export function EditProfileScreen({
             <FormField
               label="Phone Number"
               value={phone}
-              onChangeText={setPhone}
+              editable={false}
+              hint="Changing your number needs a one-time verification, coming soon"
               keyboardType="phone-pad"
               autoComplete="tel"
-              error={shown('phone')}
             />
             <Pressable
               accessibilityRole="button"
@@ -231,10 +326,15 @@ export function EditProfileScreen({
               />
             </View>
 
+            {saveError !== undefined && (
+              <Text style={styles.saveError}>{saveError}</Text>
+            )}
+
             <PrimaryButton
-              label="Save Changes"
+              label={saving ? 'Saving…' : 'Save Changes'}
               style={styles.save}
               onPress={handleSave}
+              disabled={saving}
             />
           </View>
         </ScrollView>
@@ -335,6 +435,11 @@ const styles = StyleSheet.create({
   },
   genderOptions: {
     paddingTop: 10,
+  },
+  saveError: {
+    ...typography.caption,
+    color: colors.status.debit,
+    textAlign: 'center',
   },
   save: {
     marginTop: spacing.sm,

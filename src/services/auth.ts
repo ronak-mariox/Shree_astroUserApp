@@ -10,10 +10,11 @@
  * the profile photo alongside the fields.
  */
 
+
 import { client } from './client';
 import { DUMMY_USER } from './dummyData';
-import { USE_DUMMY_DATA } from './dummyMode';
-import { clearSession, saveSession } from './session';
+import { USE_DUMMY_AUTH } from './dummyMode';
+import { clearSession, getRefreshToken, saveSession } from './session';
 import type { Gender } from '../components/GenderSelector';
 import { digitsOf } from '../utils/validation';
 
@@ -29,6 +30,7 @@ function dummyUser(phone?: string, email?: string): AuthUser {
     phone: phone ?? DUMMY_USER.phone,
     gender: DUMMY_USER.gender,
     avatarUrl: DUMMY_USER.avatarUrl,
+    profileComplete: true,
   };
 }
 
@@ -69,6 +71,16 @@ export type AuthUser = {
   phone: string;
   gender?: string;
   avatarUrl?: string;
+  /**
+   * Whether there is anything left to fill in. Always `true` after Register
+   * (the wizard collects everything up front) or an OTP sign-in (which never
+   * opens a new account — see loginWithApple/loginWithGoogle below). Can be
+   * `false` right after a first-time Apple/Google sign-in, whose account is
+   * opened with only what the provider handed over — no gender, no birth
+   * details, sometimes no name. That is the app's cue to open Edit Profile
+   * instead of Home; see `afterSignIn` in App.tsx.
+   */
+  profileComplete: boolean;
 };
 
 export type AuthSession = {
@@ -166,7 +178,7 @@ export function buildRegistrationForm(draft: RegistrationDraft): FormData {
  * is authenticated — and stays that way across a restart.
  */
 export async function register(draft: RegistrationDraft): Promise<AuthSession> {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_AUTH) {
     const session: AuthSession = {
       accessToken: 'dummy-access-token',
       refreshToken: 'dummy-refresh-token',
@@ -210,7 +222,7 @@ export async function register(draft: RegistrationDraft): Promise<AuthSession> {
 export async function requestLoginOtp(
   identifier: LoginIdentifier,
 ): Promise<OtpRequest> {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_AUTH) {
     const destination =
       identifier.channel === 'phone'
         ? `••••••${identifier.phone.slice(-4)}`
@@ -243,7 +255,7 @@ export async function verifyLoginOtp(
   identifier: LoginIdentifier,
   code: string,
 ): Promise<AuthSession> {
-  if (USE_DUMMY_DATA) {
+  if (USE_DUMMY_AUTH) {
     const session: AuthSession = {
       accessToken: 'dummy-access-token',
       refreshToken: 'dummy-refresh-token',
@@ -265,21 +277,65 @@ export async function verifyLoginOtp(
   return data;
 }
 
+/**
+ * "Continue with Apple" / "Continue with Google".
+ *
+ * Unlike the two functions above, these open an account on the spot for
+ * someone signing in for the first time — the backend does not answer
+ * `account_not_found` the way OTP login does, since the provider's token
+ * already vouches for a real identity (see `createSocialAccount` in
+ * services/auth.service.js on the backend). `fullName` only ever matters the
+ * one time that happens, and only for Apple: it hands the client the user's
+ * name once, on the very first authorization, as a separate value alongside
+ * the token rather than inside it. Every other call can simply omit it.
+ *
+ * There is no `USE_DUMMY_AUTH` branch here — nothing calls these yet, since
+ * neither native SDK is wired into the app (see SocialAuthButtons /
+ * ComingSoonScreen). They exist so that wiring one in later is exactly one
+ * native call plus one of these, not a rewrite: whichever button starts
+ * working can call this and hand the result straight to `afterSignIn`.
+ */
+export async function loginWithApple(
+  identityToken: string,
+  fullName?: string,
+): Promise<AuthSession> {
+  const { data } = await client.post<AuthSession>('/auth/apple', {
+    identityToken,
+    fullName,
+  });
+  await saveSession(data);
+  return data;
+}
+
+export async function loginWithGoogle(
+  idToken: string,
+  fullName?: string,
+): Promise<AuthSession> {
+  const { data } = await client.post<AuthSession>('/auth/google', {
+    idToken,
+    fullName,
+  });
+  await saveSession(data);
+  return data;
+}
+
 /** The number as the API wants it: ten digits, no dial code, no spacing. */
 export const loginPhoneOf = localPhoneOf;
 
 /**
  * Ends the session this device is holding.
  *
- * POST /auth/logout is told first as a courtesy — it clears the browser cookies
- * the panel uses and does nothing at all for an app — but the sign-out itself
- * is the local wipe, which happens whether or not the server was reachable.
- * A user who taps "Log out" on a plane is signed out.
+ * POST /auth/logout is told first, refresh token and all, so the server can
+ * revoke it — a copy left on a compromised device should not go on working
+ * for the refresh token's full 30-day life just because this device signed
+ * out. But the sign-out itself is the local wipe, which happens whether or
+ * not that call succeeds or the server is even reachable: a user who taps
+ * "Log out" on a plane is signed out.
  */
 export async function signOut(): Promise<void> {
-  if (!USE_DUMMY_DATA) {
+  if (!USE_DUMMY_AUTH) {
     try {
-      await client.post('/auth/logout');
+      await client.post('/auth/logout', { refreshToken: getRefreshToken() });
     } catch {
       /** Nothing here is worth keeping the user signed in for. */
     }

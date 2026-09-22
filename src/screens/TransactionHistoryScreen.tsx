@@ -15,11 +15,9 @@ import {
   WalletCreditTileIcon,
   WalletDebitTileIcon,
 } from '../components/icons/WalletIcons';
-import {
-  ledger,
-  ledgerFilters,
-  type LedgerFilter,
-} from '../data/profile';
+import { ledgerFilters, type LedgerEntry, type LedgerFilter } from '../data/profile';
+import { useApi } from '../hooks/useApi';
+import { fetchTransactions } from '../services/api';
 import {
   colors,
   designFrame,
@@ -44,9 +42,9 @@ export function TransactionHistoryScreen({
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<LedgerFilter>('all');
 
-  const entries = ledger.filter(entry =>
-    filter === 'all' ? true : entry.credit === (filter === 'added'),
-  );
+  /** Refetched whenever the filter tab changes — the server does the filtering. */
+  const ledger = useApi<LedgerEntry[]>(() => fetchTransactions(filter), [filter]);
+  const entries = ledger.data ?? [];
 
   return (
     <View style={styles.screen}>

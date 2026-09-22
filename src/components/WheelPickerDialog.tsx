@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  FlatList,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from 'react-native';
 
 import { BrandGradient } from './BrandGradient';
@@ -13,9 +16,12 @@ import { colors, radius, spacing, typography } from '../theme';
 
 const CARD_WIDTH = 343;
 const ROW_HEIGHT = 56;
+const VISIBLE_ROWS = 3;
+const WHEEL_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS;
 const ACTION_HEIGHT = 56;
-/** The neighbours above and below the selection are dimmed, not hidden. */
-const NEIGHBOUR_OPACITY = 0.3;
+/** A value at the very edge of the fade is this dim; the centre is always full opacity. */
+const EDGE_OPACITY = 0.3;
+const EDGE_SCALE = 0.86;
 
 export type WheelColumn = {
   key: string;
@@ -37,9 +43,110 @@ type WheelPickerDialogProps = {
 };
 
 /**
- * The three-row wheel behind the intake form's date and time fields: the
- * selection is ruled top and bottom, with the previous and next values faded
- * either side of it.
+ * One column: a real drag-and-flick scrolling list, snapped to a row at a
+ * time, with the centre row ruled and its neighbours faded and shrunk either
+ * side of it — the classic wheel-picker feel, built on FlatList so a long
+ * column (e.g. a birth year running 1940-2026) is a flick away rather than a
+ * tap per year, with no native picker dependency required.
+ */
+function Wheel({
+  column,
+  selected,
+  onChange,
+}: {
+  column: WheelColumn;
+  selected: string;
+  onChange: (value: string) => void;
+}) {
+  const listRef = useRef<FlatList<string>>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const initialIndex = Math.max(0, column.values.indexOf(selected));
+
+  /**
+   * `initialScrollIndex` aligns an item's TOP edge with the viewport's top,
+   * not its centre — wrong for a wheel, where the selection has to land in
+   * the middle row. Landing there is instead done by hand, once, right after
+   * this fresh mount (this component remounts on every dialog open — see
+   * `openId` below — so an effect with no deps is exactly "once per open").
+   */
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: initialIndex * ROW_HEIGHT, animated: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const commitFromOffset = (offsetY: number) => {
+    const index = Math.max(0, Math.min(column.values.length - 1, Math.round(offsetY / ROW_HEIGHT)));
+    const next = column.values[index];
+    if (next !== undefined && next !== selected) {
+      onChange(next);
+    }
+  };
+
+  const handleSettled = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    commitFromOffset(event.nativeEvent.contentOffset.y);
+  };
+
+  const scrollToIndex = (index: number) => {
+    listRef.current?.scrollToOffset({ offset: index * ROW_HEIGHT, animated: true });
+  };
+
+  return (
+    <View
+      style={[styles.column, column.narrow && styles.columnNarrow]}
+      accessibilityLabel={`${column.key} ${selected}`}
+    >
+      <Animated.FlatList
+        ref={listRef}
+        data={column.values as string[]}
+        keyExtractor={item => item}
+        style={styles.wheelList}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ROW_HEIGHT}
+        decelerationRate="fast"
+        bounces={false}
+        /** `offset` must include the leading row of padding below (`wheelContent`) — it's a content-space position, not an item-index position. */
+        getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT + ROW_HEIGHT * index, index })}
+        contentContainerStyle={styles.wheelContent}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: true,
+        })}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={handleSettled}
+        /** A slow drag that never enters a momentum phase still needs to commit its landing row. */
+        onScrollEndDrag={handleSettled}
+        renderItem={({ item, index }) => {
+          const inputRange = [(index - 1) * ROW_HEIGHT, index * ROW_HEIGHT, (index + 1) * ROW_HEIGHT];
+          const opacity = scrollY.interpolate({
+            inputRange,
+            outputRange: [EDGE_OPACITY, 1, EDGE_OPACITY],
+            extrapolate: 'clamp',
+          });
+          const scale = scrollY.interpolate({
+            inputRange,
+            outputRange: [EDGE_SCALE, 1, EDGE_SCALE],
+            extrapolate: 'clamp',
+          });
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Select ${column.key} ${item}`}
+              onPress={() => scrollToIndex(index)}
+              style={styles.cell}
+            >
+              <Animated.Text style={[styles.wheelValue, { opacity, transform: [{ scale }] }]}>
+                {item}
+              </Animated.Text>
+            </Pressable>
+          );
+        }}
+      />
+      <View pointerEvents="none" style={styles.selectionRule} />
+    </View>
+  );
+}
+
+/**
+ * The wheel dialog behind the intake form's date and time fields.
  * Figma: nodes 180:98361 (Select Time) and its Select Date twin at 180:100079.
  */
 export function WheelPickerDialog({
@@ -51,70 +158,20 @@ export function WheelPickerDialog({
   onSubmit,
 }: WheelPickerDialogProps) {
   const [draft, setDraft] = useState<Record<string, string>>(value);
+  /** Bumped every time the dialog opens, so each column's FlatList remounts fresh and lands exactly on the current value instead of wherever a previous open left it scrolled. */
+  const [openId, setOpenId] = useState(0);
 
-  // Reopening starts from whatever the field holds now.
+  // Reopening starts from whatever the field holds now, and forces a fresh scroll position.
   useEffect(() => {
     if (visible) {
       setDraft(value);
+      setOpenId(id => id + 1);
     }
-  }, [visible, value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
-  const indexOf = (column: WheelColumn) => {
-    const current = draft[column.key];
-    const index = column.values.indexOf(current);
-    return index >= 0 ? index : 0;
-  };
-
-  const step = (column: WheelColumn, delta: number) => {
-    const next = indexOf(column) + delta;
-    if (next < 0 || next >= column.values.length) {
-      return;
-    }
-    setDraft(current => ({ ...current, [column.key]: column.values[next] }));
-  };
-
-  /** One wheel: the value above, the selection, the value below. */
-  const renderColumn = (column: WheelColumn) => {
-    const index = indexOf(column);
-    const previous = index > 0 ? column.values[index - 1] : '';
-    const next =
-      index < column.values.length - 1 ? column.values[index + 1] : '';
-
-    return (
-      <View
-        key={column.key}
-        style={[styles.column, column.narrow && styles.columnNarrow]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Previous ${column.key}`}
-          disabled={previous === ''}
-          onPress={() => step(column, -1)}
-          style={styles.cell}
-        >
-          <Text style={styles.neighbour}>{previous}</Text>
-        </Pressable>
-
-        <View style={[styles.cell, styles.selectedCell]}>
-          <Text
-            accessibilityLabel={`${column.key} ${draft[column.key] ?? column.values[0]}`}
-            style={styles.selected}
-          >
-            {draft[column.key] ?? column.values[0]}
-          </Text>
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Next ${column.key}`}
-          disabled={next === ''}
-          onPress={() => step(column, 1)}
-          style={styles.cell}
-        >
-          <Text style={styles.neighbour}>{next}</Text>
-        </Pressable>
-      </View>
-    );
+  const setColumnValue = (key: string, columnValue: string) => {
+    setDraft(current => ({ ...current, [key]: columnValue }));
   };
 
   return (
@@ -135,20 +192,20 @@ export function WheelPickerDialog({
         <View style={styles.card}>
           <Text style={styles.title}>{title}</Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.wheels}
-          >
+          <View style={styles.wheels}>
             {columns.map((column, index) => (
-              <React.Fragment key={column.key}>
+              <React.Fragment key={`${column.key}-${openId}`}>
                 {index > 0 && column.separator !== undefined && (
                   <Text style={styles.separator}>{column.separator}</Text>
                 )}
-                {renderColumn(column)}
+                <Wheel
+                  column={column}
+                  selected={draft[column.key] ?? column.values[0]}
+                  onChange={next => setColumnValue(column.key, next)}
+                />
               </React.Fragment>
             ))}
-          </ScrollView>
+          </View>
 
           <View style={styles.actions}>
             <Pressable
@@ -215,6 +272,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   wheels: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.lg,
@@ -222,31 +280,38 @@ const styles = StyleSheet.create({
   },
   column: {
     minWidth: 44,
+    height: WHEEL_HEIGHT,
   },
   columnNarrow: {
     minWidth: 38,
+  },
+  wheelList: {
+    height: WHEEL_HEIGHT,
+  },
+  wheelContent: {
+    // One row of padding top and bottom, so the first/last real value can still reach the centre.
+    paddingVertical: ROW_HEIGHT,
   },
   cell: {
     height: ROW_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Figma rules the selected row top and bottom at half a point.
-  selectedCell: {
-    borderTopWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: colors.border.picker,
-  },
-  selected: {
+  wheelValue: {
     ...typography.pickerValue,
     color: colors.text.picker,
     textAlign: 'center',
   },
-  neighbour: {
-    ...typography.pickerNeighbour,
-    color: colors.text.picker,
-    opacity: NEIGHBOUR_OPACITY,
-    textAlign: 'center',
+  /** A fixed, non-scrolling ruled line marking the centre row — Figma rules the selected row top and bottom at half a point. */
+  selectionRule: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: ROW_HEIGHT,
+    height: ROW_HEIGHT,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: colors.border.picker,
   },
   separator: {
     ...typography.pickerValue,

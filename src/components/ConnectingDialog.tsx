@@ -31,8 +31,6 @@ type ConnectingDialogProps = {
   onCancel: () => void;
   /** Reports the seconds left, so a paused request can resume where it was. */
   onTick?: (remaining: number) => void;
-  /** Fired once the countdown reaches zero. */
-  onConnected?: () => void;
 };
 
 const clock = (total: number) =>
@@ -53,10 +51,17 @@ export function ConnectingDialog({
   seconds,
   onCancel,
   onTick,
-  onConnected,
 }: ConnectingDialogProps) {
   const [remaining, setRemaining] = useState(seconds);
 
+  /**
+   * Purely a display countdown of how long the request is allowed to sit
+   * unanswered — it does not decide when the card closes. That is driven
+   * entirely from outside, by whatever answer actually arrives (accepted,
+   * declined, or aged out); reaching zero here just means the wait is taking
+   * as long as the server will ever let it, and the card stays up exactly
+   * until the caller says otherwise.
+   */
   useEffect(() => {
     if (!visible) {
       return;
@@ -68,7 +73,6 @@ export function ConnectingDialog({
         if (current <= 1) {
           clearInterval(tick);
           onTick?.(0);
-          onConnected?.();
           return 0;
         }
         onTick?.(current - 1);
@@ -77,7 +81,7 @@ export function ConnectingDialog({
     }, 1000);
 
     return () => clearInterval(tick);
-  }, [visible, seconds, onTick, onConnected]);
+  }, [visible, seconds, onTick]);
 
   const elapsed = seconds === 0 ? 1 : (seconds - remaining) / seconds;
   const progress = PROGRESS_START + (1 - PROGRESS_START) * elapsed;

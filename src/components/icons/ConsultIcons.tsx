@@ -295,21 +295,3 @@ export function ChatMarkDot3({
     </Svg>
   );
 }
-
-/** Carousel pagination under the promo banner (node 180:90174). */
-export function CarouselDotsIcon({ size = 45.7364, height }: ConsultIconProps) {
-  return (
-    <Svg
-      width={size}
-      height={height ?? size * (4 / 45.7364)}
-      viewBox="0 0 45.7364 4"
-      fill="none"
-    >
-      <G>
-      <Path d="M2 2H16.2305" stroke="#EEDF43" strokeWidth={4} strokeLinecap="round"/>
-      <Path opacity={0.3} d="M23.285 2L29.6272 2" stroke="#5C5C5C" strokeWidth={4} strokeLinecap="round"/>
-      <Path opacity={0.3} d="M37.3942 2L43.7364 2" stroke="#5C5C5C" strokeWidth={4} strokeLinecap="round"/>
-      </G>
-    </Svg>
-  );
-}

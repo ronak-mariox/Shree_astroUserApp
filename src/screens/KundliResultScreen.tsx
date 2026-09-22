@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -15,19 +16,11 @@ import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
 import { KundliSection } from '../components/KundliSection';
 import { NorthIndianChart } from '../components/NorthIndianChart';
-import { REMEDY_ICONS } from '../components/icons/RemedyIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import { ZODIAC_ICONS } from '../components/icons/ZodiacIcons';
-import {
-  dashas,
-  keyPositions,
-  planetaryPositions,
-  positiveDignities,
-  remedies,
-  shadbala,
-  yogas,
-  type Dignity,
-} from '../data/kundli';
+import { positiveDignities, type Dignity } from '../data/kundli';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
 import {
   colors,
   designFrame,
@@ -42,15 +35,51 @@ const DESIGN_PADDING_TOP = 56;
 const CTA_HEIGHT = 53.992;
 const CTA_ICON = 17.993;
 const DASHA_TILE = 39.999;
-const BAR_HEIGHT = 5.994;
 const DASHA_BAR_HEIGHT = 4;
+const STRENGTH_TILE = 33.997;
+const STRENGTH_BAR_HEIGHT = 6;
 
-/** Figma colours a Shadbala score green above 70, yellow below 50. */
-function strengthColor(strength: number): string {
-  if (strength >= 70) {
-    return colors.status.positive;
+/** Remedy glyph by type — the provider gives no icon, only the two known types. */
+const REMEDY_GLYPHS: Record<'puja' | 'gemstone', string> = {
+  puja: '🕉',
+  gemstone: '💎',
+};
+
+/** Glyphs for the nine grahas — the backend gives plain planet names; only the display needs the symbol. */
+const PLANET_GLYPHS: Record<string, string> = {
+  Sun: '☀',
+  Moon: '☽',
+  Mars: '♂',
+  Mercury: '☿',
+  Jupiter: '♃',
+  Venus: '♀',
+  Saturn: '♄',
+  Rahu: '☊',
+  Ketu: '☋',
+};
+
+/** 2 -> "2nd", 11 -> "11th". */
+function ordinal(value: number): string {
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const remainder = value % 100;
+  return `${value}${suffixes[(remainder - 20) % 10] ?? suffixes[remainder] ?? suffixes[0]}`;
+}
+
+/** How far a period has run, clamped — 0 for a future one, 1 for one already over. */
+function progressOf(period: { start: string; end: string }): number {
+  const start = new Date(period.start).getTime();
+  const end = new Date(period.end).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return 0;
   }
-  return strength >= 50 ? colors.border.strong : colors.status.caution;
+  return Math.min(1, Math.max(0, (Date.now() - start) / (end - start)));
+}
+
+/** "2011-10-25T02:43:00.000Z" – "2031-10-25T02:43:00.000Z" -> "2011 – 2031". */
+function yearsOf(period: { start: string; end: string }): string {
+  const startYear = new Date(period.start).getUTCFullYear();
+  const endYear = new Date(period.end).getUTCFullYear();
+  return `${Number.isNaN(startYear) ? '—' : startYear} – ${Number.isNaN(endYear) ? '—' : endYear}`;
 }
 
 function dignityColor(dignity: Dignity): string {
@@ -60,24 +89,41 @@ function dignityColor(dignity: Dignity): string {
 }
 
 type KundliResultScreenProps = {
+  profileId: string;
   onBack?: () => void;
   onDeepAnalysis?: () => void;
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
+  /** Shown at the chart's centre; falls back to the design fixture's sample native when not given. */
+  native?: { name: string; date: string; place: string };
 };
 
 /**
  * The generated birth chart: the North Indian square, the placements behind
- * it, the running dasha, the yogas it forms, planetary strengths and the
- * remedies they suggest. Figma: node 180:89330.
+ * it, the running dasha, planetary strength, and recommended remedies.
+ * Figma: node 180:89330.
+ *
+ * Yogas were part of the original design fixture but have no backend source
+ * yet (out of scope for the AstrologyAPI integration) — see
+ * AstrologyAnalysisScreen's Yogas tab, which shows a placeholder instead.
  */
 export function KundliResultScreen({
+  profileId,
   onBack,
   onDeepAnalysis,
   activeTab = 'kundli',
   onSelectTab,
+  native,
 }: KundliResultScreenProps) {
   const insets = useSafeAreaInsets();
+
+  const overview = useApi(() => api.fetchKundliOverview(profileId), [profileId]);
+  const dasha = useApi(() => api.fetchKundliDasha(profileId), [profileId]);
+  const strength = useApi(() => api.fetchKundliStrength(profileId), [profileId]);
+  const remedies = useApi(() => api.fetchKundliRemedies(profileId), [profileId]);
+
+  const loading = (overview.loading && !overview.data) || (dasha.loading && !dasha.data);
+  const failed = overview.error ?? dasha.error;
 
   return (
     <View style={styles.screen}>
@@ -105,204 +151,188 @@ export function KundliResultScreen({
         </View>
 
         <View style={styles.body}>
-          <View style={styles.chartCard}>
-            <NorthIndianChart />
-          </View>
-
-          <View style={[styles.keyCard, styles.section]}>
-            <Text style={styles.keyTitle}>Key Positions</Text>
-            <View style={styles.keyGrid}>
-              {keyPositions.map(position => {
-                const Glyph = ZODIAC_ICONS[position.sign];
-                return (
-                  <View key={position.label} style={styles.keyTile}>
-                    {Glyph ? (
-                      <View style={styles.keyGlyphIcon}>
-                        <Glyph size={18} />
-                      </View>
-                    ) : (
-                      <Text style={styles.keyGlyph}>{position.glyph}</Text>
-                    )}
-                    <Text style={styles.keyLabel}>{position.label}</Text>
-                    <Text style={styles.keySign}>{position.sign}</Text>
-                  </View>
-                );
-              })}
+          {loading && (
+            <View style={styles.centered}>
+              <ActivityIndicator color={colors.border.strong} />
+              <Text style={styles.centeredText}>Loading your kundli…</Text>
             </View>
-          </View>
+          )}
 
-          <KundliSection title="Planetary Positions" style={styles.section}>
-            <View style={styles.table}>
-              {planetaryPositions.map(row => (
-                <View key={row.planet} style={styles.tableRow}>
-                  <Text style={styles.rowPlanet}>{row.planet}</Text>
-                  <Text style={styles.rowSign}>{row.sign}</Text>
-                  <Text style={styles.rowHouse}>{row.house}</Text>
-                  <View style={styles.rowBadgeSlot}>
-                    {row.dignity !== undefined && (
-                      <View style={styles.dignityBadge}>
-                        <Text
-                          style={[
-                            styles.dignityLabel,
-                            { color: dignityColor(row.dignity) },
-                          ]}
-                        >
-                          {row.dignity}
-                        </Text>
+          {!loading && failed && (
+            <View style={styles.centered}>
+              <Text style={styles.centeredText}>{failed.message}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  overview.reload();
+                  dasha.reload();
+                  strength.reload();
+                  remedies.reload();
+                }}
+              >
+                <Text style={styles.retryLabel}>Try again</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!loading && !failed && overview.data && (
+            <>
+              <View style={styles.chartCard}>
+                <NorthIndianChart planets={overview.data.planetaryPositions} native={native} />
+              </View>
+
+              <View style={[styles.keyCard, styles.section]}>
+                <Text style={styles.keyTitle}>Key Positions</Text>
+                <View style={styles.keyGrid}>
+                  {overview.data.keyPositions.map(position => {
+                    const Glyph = ZODIAC_ICONS[position.sign];
+                    return (
+                      <View key={position.label} style={styles.keyTile}>
+                        {Glyph ? (
+                          <View style={styles.keyGlyphIcon}>
+                            <Glyph size={18} />
+                          </View>
+                        ) : (
+                          <Text style={styles.keyGlyph}>✦</Text>
+                        )}
+                        <Text style={styles.keyLabel}>{position.label}</Text>
+                        <Text style={styles.keySign}>{position.sign}</Text>
                       </View>
-                    )}
-                  </View>
+                    );
+                  })}
                 </View>
-              ))}
-            </View>
-          </KundliSection>
+              </View>
 
-          <KundliSection
-            title="Vimshottari Dasha"
-            subtitle="Current & Upcoming Mahadasha"
-            style={styles.section}
-          >
-            <View style={styles.dashaList}>
-              {dashas.map(dasha => (
-                <View key={dasha.name} style={styles.dashaRow}>
-                  <View style={styles.dashaTile}>
-                    <Text style={styles.dashaGlyph}>{dasha.glyph}</Text>
-                  </View>
+              <KundliSection title="Planetary Positions" style={styles.section}>
+                <View style={styles.table}>
+                  {overview.data.planetaryPositions.map(row => (
+                    <View key={row.planet} style={styles.tableRow}>
+                      <Text style={styles.rowPlanet}>{row.planet}</Text>
+                      <Text style={styles.rowSign}>{row.sign}</Text>
+                      <Text style={styles.rowHouse}>{ordinal(row.house)}</Text>
+                      <View style={styles.rowBadgeSlot}>
+                        {row.dignity !== undefined && (
+                          <View style={styles.dignityBadge}>
+                            <Text
+                              style={[
+                                styles.dignityLabel,
+                                { color: dignityColor(row.dignity) },
+                              ]}
+                            >
+                              {row.dignity}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </KundliSection>
 
-                  <View style={styles.dashaCopy}>
-                    <View style={styles.dashaHeading}>
-                      <Text style={styles.dashaName}>{dasha.name}</Text>
-                      {dasha.current === true && (
-                        <View style={styles.currentBadge}>
-                          <Text style={styles.currentLabel}>CURRENT</Text>
+              {dasha.data && (
+                <KundliSection
+                  title="Vimshottari Dasha"
+                  subtitle="Current & Upcoming Mahadasha"
+                  style={styles.section}
+                >
+                  <View style={styles.dashaList}>
+                    {dasha.data.mahadasha.map(period => (
+                      <View key={period.lord} style={styles.dashaRow}>
+                        <View style={styles.dashaTile}>
+                          <Text style={styles.dashaGlyph}>
+                            {PLANET_GLYPHS[period.lord] ?? '✦'}
+                          </Text>
                         </View>
-                      )}
-                    </View>
-                    <Text style={styles.dashaYears}>{dasha.years}</Text>
-                    <View style={styles.dashaTrack}>
-                      <View
-                        style={[
-                          styles.dashaFill,
-                          { width: `${dasha.progress * 100}%` },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </KundliSection>
 
-          <KundliSection title="Yogas in Chart" style={styles.section}>
-            <View style={styles.yogaList}>
-              {yogas.map(yoga => {
-                const auspicious = yoga.verdict === 'Auspicious';
-
-                return (
-                  <View
-                    key={yoga.name}
-                    style={[
-                      styles.yogaCard,
-                      auspicious ? styles.yogaPositive : styles.yogaNegative,
-                    ]}
-                  >
-                    <View style={styles.yogaHeading}>
-                      <Text style={styles.yogaName}>{yoga.name}</Text>
-                      <View
-                        style={[
-                          styles.verdictBadge,
-                          {
-                            backgroundColor: auspicious
-                              ? colors.status.positive
-                              : colors.status.negative,
-                          },
-                        ]}
-                      >
-                        <Text style={styles.verdictLabel}>{yoga.verdict}</Text>
+                        <View style={styles.dashaCopy}>
+                          <View style={styles.dashaHeading}>
+                            <Text style={styles.dashaName}>{`${period.lord} Dasha`}</Text>
+                            {period.current === true && (
+                              <View style={styles.currentBadge}>
+                                <Text style={styles.currentLabel}>CURRENT</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.dashaYears}>{yearsOf(period)}</Text>
+                          <View style={styles.dashaTrack}>
+                            <View
+                              style={[
+                                styles.dashaFill,
+                                { width: `${progressOf(period) * 100}%` },
+                              ]}
+                            />
+                          </View>
+                        </View>
                       </View>
-                    </View>
-                    <Text style={styles.yogaDescription}>
-                      {yoga.description}
-                    </Text>
+                    ))}
                   </View>
-                );
-              })}
-            </View>
-          </KundliSection>
+                </KundliSection>
+              )}
 
-          <KundliSection
-            title="Planetary Strength (Shadbala)"
-            style={styles.section}
-          >
-            <View style={styles.strengthList}>
-              {shadbala.map(entry => (
-                <View key={entry.planet} style={styles.strengthRow}>
-                  <View style={styles.strengthHeading}>
-                    <Text style={styles.strengthPlanet}>{entry.planet}</Text>
-                    <Text
-                      style={[
-                        styles.strengthValue,
-                        { color: strengthColor(entry.strength) },
-                      ]}
-                    >
-                      {entry.strength}%
-                    </Text>
+              {strength.data && strength.data.strength.length > 0 && (
+                <KundliSection title="Planetary Strength (Shadbala)" style={styles.section}>
+                  <View style={styles.strengthList}>
+                    {strength.data.strength.map(row => (
+                      <View key={row.planet} style={styles.strengthRow}>
+                        <View style={styles.strengthTile}>
+                          <Text style={styles.strengthGlyph}>{row.symbol}</Text>
+                        </View>
+                        <View style={styles.strengthCopy}>
+                          <View style={styles.strengthHeading}>
+                            <Text style={styles.strengthName}>{row.planet}</Text>
+                            <Text style={styles.strengthValue}>{`${row.percentage}%`}</Text>
+                          </View>
+                          <View style={styles.strengthTrack}>
+                            <View
+                              style={[
+                                styles.strengthFill,
+                                { width: `${Math.min(100, row.percentage)}%` },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                  <View style={styles.strengthTrack}>
-                    <View
-                      style={[
-                        styles.strengthFill,
-                        { width: `${entry.strength}%` },
-                      ]}
-                    />
+                </KundliSection>
+              )}
+
+              {remedies.data && remedies.data.remedies.length > 0 && (
+                <KundliSection title="Recommended Remedies" style={styles.section}>
+                  <View style={styles.remedyList}>
+                    {remedies.data.remedies.map((remedy, index) => (
+                      <View key={`${remedy.type}-${index}`} style={styles.remedyCard}>
+                        <View style={styles.remedyTile}>
+                          <Text style={styles.remedyGlyph}>{REMEDY_GLYPHS[remedy.type]}</Text>
+                        </View>
+                        <View style={styles.remedyCopy}>
+                          <Text style={styles.remedyName}>{remedy.title}</Text>
+                          <Text style={styles.remedyDescription}>{remedy.description}</Text>
+                          {remedy.frequency !== undefined && (
+                            <Text style={styles.remedySchedule}>{remedy.frequency}</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                </View>
-              ))}
-            </View>
-          </KundliSection>
+                </KundliSection>
+              )}
 
-          <View style={[styles.remediesCard, styles.section]}>
-            <Text style={styles.remediesTitle}>Recommended Remedies</Text>
-            <Text style={styles.remediesSubtitle}>
-              Based on your chart analysis
-            </Text>
-
-            <View style={styles.remedyList}>
-              {remedies.map(remedy => {
-                const Glyph = REMEDY_ICONS[remedy.name];
-                return (
-                  <View key={remedy.name} style={styles.remedyRow}>
-                    {Glyph ? (
-                      <Glyph size={28} />
-                    ) : (
-                      <Text style={styles.remedyGlyph}>{remedy.glyph}</Text>
-                    )}
-                    <View style={styles.remedyCopy}>
-                      <Text style={styles.remedyName}>{remedy.name}</Text>
-                      <Text style={styles.remedyDescription}>
-                        {remedy.description}
-                      </Text>
-                      <Text style={styles.remedySchedule}>{remedy.schedule}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={onDeepAnalysis}
-            style={({ pressed }) => [
-              styles.cta,
-              styles.section,
-              pressed && styles.pressed,
-            ]}
-          >
-            <BrandGradient radius={radius.button} />
-            <SearchIcon size={CTA_ICON} color={colors.text.inverse} />
-            <Text style={styles.ctaLabel}>Deep Astrology Analysis</Text>
-          </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={onDeepAnalysis}
+                style={({ pressed }) => [
+                  styles.cta,
+                  styles.section,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <BrandGradient radius={radius.button} />
+                <SearchIcon size={CTA_ICON} color={colors.text.inverse} />
+                <Text style={styles.ctaLabel}>Deep Astrology Analysis</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -338,6 +368,20 @@ const styles = StyleSheet.create({
   },
   section: {
     marginTop: spacing.section,
+  },
+  centered: {
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.xxl,
+  },
+  centeredText: {
+    ...typography.body,
+    color: colors.text.secondary,
+    textAlign: 'center',
+  },
+  retryLabel: {
+    ...typography.footnoteStrong,
+    color: colors.border.strong,
   },
 
   chartCard: {
@@ -527,127 +571,96 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandYellow,
   },
 
-  yogaList: {
-    paddingTop: spacing.rowGap,
-    gap: 10,
-  },
-  yogaCard: {
-    borderRadius: radius.field,
-    borderWidth: hairline,
-    padding: 14.755,
-  },
-  yogaPositive: {
-    backgroundColor: colors.status.positiveTint,
-    borderColor: colors.status.positiveTintBorder,
-  },
-  yogaNegative: {
-    backgroundColor: colors.status.negativeTint,
-    borderColor: colors.status.negativeTintBorder,
-  },
-  yogaHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  yogaName: {
-    ...typography.rowTitle,
-    color: colors.text.primary,
-    flex: 1,
-  },
-  verdictBadge: {
-    borderRadius: radius.chip,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  verdictLabel: {
-    ...typography.chipLabel,
-    color: colors.text.inverse,
-  },
-  yogaDescription: {
-    ...typography.caption,
-    color: colors.text.secondary,
-    paddingTop: 6,
-  },
-
   strengthList: {
     paddingTop: spacing.rowGap,
+    gap: spacing.md,
   },
   strengthRow: {
-    paddingTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.rowGap,
+  },
+  strengthTile: {
+    width: STRENGTH_TILE,
+    height: STRENGTH_TILE,
+    borderRadius: radius.field,
+    backgroundColor: colors.surfaceRecessed,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  strengthGlyph: {
+    ...typography.symbolMedium,
+    color: colors.border.strong,
+  },
+  strengthCopy: {
+    flex: 1,
   },
   strengthHeading: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  strengthPlanet: {
-    ...typography.captionStrong,
+  strengthName: {
+    ...typography.footnoteStrong,
     color: colors.text.primary,
   },
   strengthValue: {
     ...typography.captionBold,
+    color: colors.border.strong,
   },
   strengthTrack: {
-    height: BAR_HEIGHT,
-    borderRadius: radius.progress,
+    height: STRENGTH_BAR_HEIGHT,
+    borderRadius: STRENGTH_BAR_HEIGHT / 2,
     backgroundColor: colors.track,
     overflow: 'hidden',
-    marginTop: 5,
+    marginTop: spacing.sm,
   },
   strengthFill: {
-    height: BAR_HEIGHT,
-    borderRadius: radius.progress,
+    height: STRENGTH_BAR_HEIGHT,
+    borderRadius: STRENGTH_BAR_HEIGHT / 2,
     backgroundColor: colors.brandYellow,
   },
 
-  remediesCard: {
-    borderRadius: radius.card,
-    backgroundColor: colors.brandTint,
-    padding: 18,
-  },
-  remediesTitle: {
-    ...typography.cardTitle,
-    color: colors.border.strong,
-  },
-  remediesSubtitle: {
-    ...typography.caption,
-    color: colors.text.onTint,
-    paddingTop: spacing.xs,
-  },
   remedyList: {
     paddingTop: spacing.rowGap,
-    gap: spacing.rowGap,
-  },
-  remedyRow: {
-    flexDirection: 'row',
     gap: spacing.md,
-    borderRadius: radius.field,
+  },
+  remedyCard: {
+    flexDirection: 'row',
+    gap: spacing.rowGap,
+    borderRadius: radius.input,
     borderWidth: hairline,
-    borderColor: colors.border.onTint,
-    backgroundColor: colors.glass.row,
-    padding: 12.755,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface,
+    padding: 14.755,
+  },
+  remedyTile: {
+    width: DASHA_TILE,
+    height: DASHA_TILE,
+    borderRadius: radius.field,
+    backgroundColor: colors.surfaceRecessed,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   remedyGlyph: {
-    ...typography.symbolLarge,
-    color: colors.border.strong,
+    ...typography.symbolMedium,
   },
   remedyCopy: {
     flex: 1,
   },
   remedyName: {
-    ...typography.rowTitle,
-    color: colors.border.strong,
+    ...typography.footnoteStrong,
+    color: colors.text.primary,
   },
   remedyDescription: {
     ...typography.caption,
-    color: colors.text.remedy,
+    color: colors.text.secondary,
     paddingTop: 2,
   },
   remedySchedule: {
-    ...typography.priceLabel,
+    ...typography.captionMedium,
     color: colors.border.strong,
-    paddingTop: spacing.xs,
+    paddingTop: spacing.sm,
   },
 
   cta: {

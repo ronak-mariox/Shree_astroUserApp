@@ -9,8 +9,8 @@ const TICK_SIZE = 8;
 
 export type ConsultationMessage = {
   id: string;
-  /** Who typed it — the seeker using the app, or the astrologer. */
-  from: 'seeker' | 'astrologer';
+  /** Who typed it — the seeker using the app, the astrologer, or the platform itself ("Consultation started."). */
+  from: 'seeker' | 'astrologer' | 'system';
   lines: ReadonlyArray<string>;
   time: string;
   /** An earlier message this one replies to, printed above the body. */
@@ -24,11 +24,25 @@ type ConsultationBubbleProps = {
 /**
  * One message in a live consultation: the seeker's blush bubble on the right,
  * the astrologer's white one on the left, each squared off on the corner it is
- * sent from and stamped with its time and delivery ticks.
+ * sent from and stamped with its time and delivery ticks. A system line (the
+ * session opening or closing) sits centred, with neither a bubble nor a stamp
+ * — it is a fact about the session, not something either side said.
  * Figma: nodes 180:118806 (seeker), 180:118752 (astrologer) and 180:118762
  * (the quoted variant).
  */
 export function ConsultationBubble({ message }: ConsultationBubbleProps) {
+  if (message.from === 'system') {
+    return (
+      <View style={styles.systemRow}>
+        {message.lines.map((line, index) => (
+          <Text key={`${message.id}-${index}`} style={styles.systemLine}>
+            {line}
+          </Text>
+        ))}
+      </View>
+    );
+  }
+
   const own = message.from === 'seeker';
 
   return (
@@ -68,6 +82,16 @@ const styles = StyleSheet.create({
   },
   rowOwn: {
     justifyContent: 'flex-end',
+  },
+  systemRow: {
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  systemLine: {
+    ...typography.chatStamp,
+    color: colors.text.onYellow,
+    opacity: 0.6,
+    textAlign: 'center',
   },
   bubble: {
     maxWidth: BUBBLE_MAX_WIDTH,

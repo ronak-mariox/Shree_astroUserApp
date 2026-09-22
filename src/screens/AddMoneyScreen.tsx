@@ -15,10 +15,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { PrimaryButton } from '../components/PrimaryButton';
 import {
-  amountLimits,
+  amountLimits as defaultAmountLimits,
   quickSelectAmounts,
-  wallet,
 } from '../data/wallet';
+import { useApi } from '../hooks/useApi';
+import { fetchSettings, fetchWallet, rupees } from '../services/api';
 import { validateAmount } from '../utils/validation';
 import {
   colors,
@@ -54,6 +55,14 @@ export function AddMoneyScreen({
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState(String(initialAmount));
 
+  const wallet = useApi(() => fetchWallet(), []);
+  /** The admin-configurable real limits; the fixture's values hold until these load. */
+  const settings = useApi(() => fetchSettings(), []);
+  const amountLimits = {
+    min: settings.data?.minRecharge ?? defaultAmountLimits.min,
+    max: settings.data?.maxRecharge ?? defaultAmountLimits.max,
+  };
+
   const numericAmount = Number(amount) || 0;
   const amountError = validateAmount(numericAmount, amountLimits);
 
@@ -82,7 +91,7 @@ export function AddMoneyScreen({
           <View>
             <Text style={styles.title}>Add Money</Text>
             <Text style={styles.subtitle}>
-              Current Balance: {wallet.balance.replace(' ', '')}
+              Current Balance: {rupees(wallet.data?.balance ?? 0)}
             </Text>
           </View>
         </View>
@@ -150,7 +159,7 @@ export function AddMoneyScreen({
             <Text style={styles.noticeGlyph}>💡</Text>
             <View style={styles.noticeCopy}>
               <Text style={styles.noticeTitle}>
-                Secure Payments via Razorpay
+                Secure Payments
               </Text>
               <Text style={styles.noticeDetail}>
                 UPI, Credit/Debit Cards, Net Banking accepted

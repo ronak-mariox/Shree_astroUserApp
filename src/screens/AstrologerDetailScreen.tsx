@@ -94,12 +94,17 @@ export function AstrologerDetailScreen({
   const profile = useMemo<AstrologerProfile>(() => {
     const row = detail.data;
 
-    /** Before the fetch lands, everything comes from the card that was tapped. */
+    /**
+     * Before the fetch lands, everything comes from the card that was
+     * tapped. The struck-through "was" is ₹10 over the real rate — cosmetic,
+     * not the backend's own (usually equal) was/now pair — same as the
+     * listing card in AvailableAstrologersScreen.
+     */
     const rates = row?.rates?.chat
-      ? { was: `₹${row.rates.chat.was}/min`, now: `₹${row.rates.chat.now}/min` }
+      ? { was: `₹${row.rates.chat.now + 10}/min`, now: `₹${row.rates.chat.now}/min` }
       : astrologer?.rates ?? { was: '', now: astrologer?.rate ?? '—' };
     const callRates = row?.rates?.call
-      ? { was: `₹${row.rates.call.was}/min`, now: `₹${row.rates.call.now}/min` }
+      ? { was: `₹${row.rates.call.now + 10}/min`, now: `₹${row.rates.call.now}/min` }
       : rates;
 
     const expertise: string[] = row?.expertise ?? [];
@@ -133,7 +138,13 @@ export function AstrologerDetailScreen({
       ],
       rates: { chat: rates, call: callRates },
       media: (row?.gallery ?? []).map((url: string) => ({ uri: url })),
-      specializations: row?.specializations ?? [],
+      /** The astrologer's declared skill — falls back to any free-text
+       *  specializations they've set, for an astrologer who has one but not
+       *  the other. */
+      specializations: expertise.length
+        ? expertise.map(api.titleCase)
+        : row?.specializations ?? [],
+      languagesList: row?.languages ? row.languages.map(api.titleCase) : [],
       about: row?.about ?? '',
     };
   }, [detail.data, astrologer]);
@@ -293,6 +304,15 @@ export function AstrologerDetailScreen({
           <Text style={styles.sectionTitle}>Specialization</Text>
           <View style={styles.specializations}>
             {profile.specializations.map(item => (
+              <View key={item} style={styles.specTag}>
+                <Text style={styles.specLabel}>{item}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Text style={styles.sectionTitle}>Languages Known</Text>
+          <View style={styles.specializations}>
+            {profile.languagesList.map(item => (
               <View key={item} style={styles.specTag}>
                 <Text style={styles.specLabel}>{item}</Text>
               </View>

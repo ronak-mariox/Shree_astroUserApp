@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -18,13 +18,11 @@ import { WheelPickerDialog } from '../components/WheelPickerDialog';
 import { ArrowLeftIcon } from '../components/icons/ArrowLeftIcon';
 import { account } from '../data/profile';
 import {
-  CHAT_WINDOWS,
   DAY_COLUMN,
   HOUR_COLUMN,
   MERIDIEM_COLUMN,
   MINUTE_COLUMN,
   MONTH_COLUMN,
-  RECENT_CHATS,
   SECOND_COLUMN,
   TOPICS,
   YEAR_COLUMN,
@@ -32,6 +30,15 @@ import {
   formatBirthTime,
   type ChatIntake,
 } from '../data/chatIntake';
+import { useApi } from '../hooks/useApi';
+import { fetchRecentIntakeContacts } from '../services/api';
+import {
+  validateName,
+  validatePlace,
+  validateRequired,
+  isFormValid,
+  type FieldError,
+} from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -50,6 +57,16 @@ const CTA_HEIGHT = 51;
 type ChatIntakeScreenProps = {
   /** Who the intake is for — printed on the CTA. */
   astrologerName: string;
+  /**
+   * Already on file from the signed-in profile — filled in and locked rather
+   * than left open to retyping, since a mismatch here would cast the chart
+   * against different birth details than the ones on record. An account
+   * without one of these yet (birth details never filed) leaves that field
+   * open, same as before.
+   */
+  fullName?: string;
+  dateOfBirth?: string;
+  timeOfBirth?: string;
   onBack?: () => void;
   onMyOrders?: () => void;
   /** Fired with the completed form when "Connect With …" is pressed. */
@@ -63,21 +80,55 @@ type ChatIntakeScreenProps = {
  */
 export function ChatIntakeScreen({
   astrologerName,
+  fullName: profileFullName,
+  dateOfBirth: profileDateOfBirth,
+  timeOfBirth: profileTimeOfBirth,
   onBack,
   onMyOrders,
   onConnect,
 }: ChatIntakeScreenProps) {
   const insets = useSafeAreaInsets();
-  const [fullName, setFullName] = useState(account.name);
-  const [dateOfBirth, setDateOfBirth] = useState('08 February 1999');
-  const [timeOfBirth, setTimeOfBirth] = useState('10 : 30 PM');
+  const recentContacts = useApi(() => fetchRecentIntakeContacts(), []);
+  const [fullName, setFullName] = useState(profileFullName || account.name);
+  const [dateOfBirth, setDateOfBirth] = useState(profileDateOfBirth || '08 February 1999');
+  const [timeOfBirth, setTimeOfBirth] = useState(profileTimeOfBirth || '10 : 30 PM');
   const [gender, setGender] = useState<'male' | 'female'>('male');
+
+  /** The profile can still be loading on first mount; pick these up the moment it lands. */
+  useEffect(() => {
+    if (profileFullName) setFullName(profileFullName);
+  }, [profileFullName]);
+  useEffect(() => {
+    if (profileDateOfBirth) setDateOfBirth(profileDateOfBirth);
+  }, [profileDateOfBirth]);
+  useEffect(() => {
+    if (profileTimeOfBirth) setTimeOfBirth(profileTimeOfBirth);
+  }, [profileTimeOfBirth]);
+
+  /** Locked the moment the profile actually has one to show — see the prop doc above. */
+  const fullNameLocked = Boolean(profileFullName);
+  const dateOfBirthLocked = Boolean(profileDateOfBirth);
+  const timeOfBirthLocked = Boolean(profileTimeOfBirth);
   const [birthPlace, setBirthPlace] = useState('');
   const [topic, setTopic] = useState('');
-  const [minutes, setMinutes] = useState<number>(CHAT_WINDOWS[1]);
   const [picker, setPicker] = useState<'date' | 'time' | 'topic' | null>(null);
+  /** Errors stay hidden until Connect is pressed, then follow every keystroke — same convention as ProfileCreationScreen. */
+  const [submitted, setSubmitted] = useState(false);
 
-  const connect = () =>
+  const errors: Record<string, FieldError> = {
+    fullName: validateName(fullName),
+    dateOfBirth: validateRequired(dateOfBirth, 'Date of birth'),
+    timeOfBirth: validateRequired(timeOfBirth, 'Time of birth'),
+    birthPlace: validatePlace(birthPlace, 'Birth place'),
+    topic: validateRequired(topic, 'Topic of concern'),
+  };
+  const shown = (field: keyof typeof errors) => (submitted ? errors[field] : undefined);
+
+  const connect = () => {
+    setSubmitted(true);
+    if (!isFormValid(errors)) {
+      return;
+    }
     onConnect?.({
       fullName: fullName.trim(),
       dateOfBirth,
@@ -85,8 +136,8 @@ export function ChatIntakeScreen({
       gender,
       birthPlace: birthPlace.trim(),
       topic,
-      minutes,
     });
+  };
 
   return (
     <View style={styles.screen}>
@@ -133,53 +184,68 @@ export function ChatIntakeScreen({
           ]}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.sectionTitle}>Recent Chats</Text>
-          <View style={styles.recent}>
-            {RECENT_CHATS.map(person => (
-              <Pressable
-                key={person.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Chat with ${person.name} again`}
-                onPress={() => setFullName(person.name)}
-                style={({ pressed }) => [
-                  styles.recentPerson,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={styles.recentAvatar}>
-                  <Text style={styles.recentInitial}>
-                    {person.name.slice(0, 1)}
-                  </Text>
-                </View>
-                <Text style={styles.recentName}>{person.name}</Text>
-              </Pressable>
-            ))}
-          </View>
+          {recentContacts.data !== null && recentContacts.data.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Recent Chats</Text>
+              <View style={styles.recent}>
+                {recentContacts.data.map(person => (
+                  <Pressable
+                    key={person.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use ${person.fullName}'s details again`}
+                    onPress={() => {
+                      if (!fullNameLocked) setFullName(person.fullName);
+                      if (!dateOfBirthLocked && person.dateOfBirth) setDateOfBirth(person.dateOfBirth);
+                      if (!timeOfBirthLocked && person.timeOfBirth) setTimeOfBirth(person.timeOfBirth);
+                      if (person.gender) setGender(person.gender);
+                      if (person.birthPlace) setBirthPlace(person.birthPlace);
+                    }}
+                    style={({ pressed }) => [
+                      styles.recentPerson,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.recentAvatar}>
+                      <Text style={styles.recentInitial}>
+                        {person.fullName.slice(0, 1)}
+                      </Text>
+                    </View>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {person.fullName}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
 
           <View style={styles.form}>
-            <Field label="Full Name">
+            <Field label="Full Name" error={shown('fullName')}>
               <TextInput
                 accessibilityLabel="Full Name"
                 value={fullName}
                 onChangeText={setFullName}
+                editable={!fullNameLocked}
                 placeholder="Mithu Kumar"
                 placeholderTextColor={colors.text.intakeLabel}
-                style={styles.input}
+                style={[styles.input, fullNameLocked && styles.inputLocked]}
               />
             </Field>
 
             <View style={styles.row}>
-              <Field label="Date of Birth" style={styles.rowItem}>
+              <Field label="Date of Birth" style={styles.rowItem} error={shown('dateOfBirth')}>
                 <SelectBox
                   label="Date of Birth"
                   value={dateOfBirth}
+                  disabled={dateOfBirthLocked}
                   onPress={() => setPicker('date')}
                 />
               </Field>
-              <Field label="Time of Birth" style={styles.rowItem}>
+              <Field label="Time of Birth" style={styles.rowItem} error={shown('timeOfBirth')}>
                 <SelectBox
                   label="Time of Birth"
                   value={timeOfBirth}
+                  disabled={timeOfBirthLocked}
                   onPress={() => setPicker('time')}
                 />
               </Field>
@@ -220,7 +286,7 @@ export function ChatIntakeScreen({
               </View>
             </Field>
 
-            <Field label="Birth Place">
+            <Field label="Birth Place" error={shown('birthPlace')}>
               <TextInput
                 accessibilityLabel="Birth Place"
                 value={birthPlace}
@@ -231,7 +297,7 @@ export function ChatIntakeScreen({
               />
             </Field>
 
-            <Field label="Topic of concern">
+            <Field label="Topic of concern" error={shown('topic')}>
               <SelectBox
                 label="Topic of concern"
                 value={topic}
@@ -239,39 +305,6 @@ export function ChatIntakeScreen({
                 caret
                 onPress={() => setPicker('topic')}
               />
-            </Field>
-
-            {/* The session window — how many minutes the chat is booked for. */}
-            <Field label="Chat Duration">
-              <View style={styles.windows}>
-                {CHAT_WINDOWS.map(option => {
-                  const selected = option === minutes;
-
-                  return (
-                    <Pressable
-                      key={option}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}
-                      accessibilityLabel={`${option} min`}
-                      onPress={() => setMinutes(option)}
-                      style={({ pressed }) => [
-                        styles.window,
-                        selected && styles.windowSelected,
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.windowLabel,
-                          selected && styles.windowLabelSelected,
-                        ]}
-                      >
-                        {option} min
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
             </Field>
           </View>
 
@@ -345,16 +378,19 @@ export function ChatIntakeScreen({
 function Field({
   label,
   style,
+  error,
   children,
 }: {
   label: string;
   style?: object;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
     <View style={style}>
       <Text style={styles.label}>{label}</Text>
       {children}
+      {error !== undefined && <Text style={styles.error}>{error}</Text>}
     </View>
   );
 }
@@ -365,12 +401,14 @@ function SelectBox({
   value,
   placeholder,
   caret = false,
+  disabled = false,
   onPress,
 }: {
   label: string;
   value: string;
   placeholder?: string;
   caret?: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -378,17 +416,20 @@ function SelectBox({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityValue={{ text: value || 'Not set' }}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.input,
         styles.select,
+        disabled && styles.inputLocked,
         pressed && styles.pressed,
       ]}
     >
       <Text style={styles.selectValue} numberOfLines={1}>
         {value || placeholder || label}
       </Text>
-      {caret && <Text style={styles.caret}>⌄</Text>}
+      {caret && !disabled && <Text style={styles.caret}>⌄</Text>}
     </Pressable>
   );
 }
@@ -481,6 +522,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     color: colors.text.onYellow,
   },
+  /** Already on file and not up for retyping here — see the prop doc on `fullName`. */
+  inputLocked: {
+    backgroundColor: colors.surfaceMuted,
+    color: colors.text.disabled,
+  },
   select: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -530,30 +576,10 @@ const styles = StyleSheet.create({
   genderLabelSelected: {
     color: colors.border.intakeSelected,
   },
-  windows: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  window: {
-    flex: 1,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.tag,
-    borderWidth: 1,
-    borderColor: colors.border.intakeField,
-    backgroundColor: colors.surface,
-  },
-  windowSelected: {
-    borderColor: colors.border.intakeSelected,
-    backgroundColor: colors.status.negativeTint,
-  },
-  windowLabel: {
-    ...typography.intakeOption,
-    color: colors.text.intakeLabel,
-  },
-  windowLabelSelected: {
-    color: colors.border.intakeSelected,
+  error: {
+    ...typography.caption,
+    color: colors.status.debit,
+    paddingTop: spacing.xs,
   },
   cta: {
     height: CTA_HEIGHT,
