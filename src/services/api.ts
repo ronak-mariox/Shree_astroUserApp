@@ -728,44 +728,6 @@ export async function requestChat(astrologerId: string, intake: Intake, channel 
   };
 }
 
-/** "Extend with another package" on the extend prompt — priced and wallet-checked again server-side before anything is charged. */
-export async function extendPackage(chatId: string, packageMinutes: number, quotedPrice: number) {
-  if (USE_DUMMY_CONSULTATIONS) {
-    const now = new Date();
-    return {
-      chatId,
-      packageMinutes,
-      amount: quotedPrice,
-      endsAt: new Date(now.getTime() + packageMinutes * 60000).toISOString(),
-      serverTime: now.toISOString(),
-      balanceRemaining: DUMMY_WALLET.balance,
-    };
-  }
-  const { data } = await client.post(`/chats/${chatId}/extend`, { packageMinutes, quotedPrice });
-  return data as {
-    chatId: string;
-    packageMinutes: number;
-    amount: number;
-    endsAt: string;
-    serverTime: string;
-    balanceRemaining: number;
-  };
-}
-
-/** "Continue per-minute" on the extend prompt — the normal per-minute meter runs from here, first minute charged now. */
-export async function continuePerMinute(chatId: string) {
-  if (USE_DUMMY_CONSULTATIONS) {
-    return { chatId, perMinuteStartedAt: new Date().toISOString(), ratePerMinute: 0, balanceRemaining: DUMMY_WALLET.balance };
-  }
-  const { data } = await client.post(`/chats/${chatId}/continue-per-minute`, {});
-  return data as {
-    chatId: string;
-    perMinuteStartedAt: string;
-    ratePerMinute: number;
-    balanceRemaining: number;
-  };
-}
-
 /** Re-exported so screens price packages from one place. */
 export { packagePrice };
 
@@ -818,7 +780,7 @@ export async function getChatState(chatId: string) {
     endReason?: string;
     /** How the session was booked; a package session keeps 'package' even after switching to per-minute (see `package.phase`). */
     billingMode?: 'per_minute' | 'package';
-    /** Package sessions only — the server-side package clock and, while it's open, the extend prompt's options. */
+    /** Package sessions only — the server-side package clock. */
     package?: PackageView;
     /** The server's clock at the time of this read — package countdowns are measured against it, not the device's. */
     serverTime?: string;

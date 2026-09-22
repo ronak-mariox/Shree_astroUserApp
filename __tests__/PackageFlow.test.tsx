@@ -1,7 +1,9 @@
 /**
  * Package-based consultations, on the screens: the intake form's
  * "Choose consultation type" section, and the live chat's package countdown,
- * 30-second warning, "Extend consultation?" prompt and its three answers.
+ * 30-second warning and the switch to per-minute when the package runs out —
+ * where a short wallet shows the app's existing Low Balance banner and
+ * Recharge popup, exactly as in a per-minute chat.
  *
  * Runs against __tests__/helpers/apiMock.ts (wired in jest.setup.js); the
  * package socket events are fired through its fire* helpers, exactly as the
@@ -15,19 +17,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OptionPickerDialog } from '../src/components/OptionPickerDialog';
 import { ChatIntakeScreen } from '../src/screens/ChatIntakeScreen';
 import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
-import { quotePackages } from '../src/data/consultPackages';
-import { ApiError } from '../src/services/client';
 import * as api from '../src/services/api';
 import {
-  fireEnded,
-  firePackageEnded,
+  fireLowBalance,
   firePackageWarning,
+  firePerMinuteStarted,
+  fireTick,
 } from './helpers/apiMock';
-
-const mockApi = api as unknown as {
-  extendPackage: jest.Mock;
-  continuePerMinute: jest.Mock;
-};
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -113,18 +109,7 @@ const packageState = (pkg: Record<string, unknown> = {}) => ({
   minutesRemaining: 7,
   billingMode: 'package' as const,
   serverTime: iso(0),
-  package: { phase: 'package', endsAt: iso(180_000), warningSeconds: 30, respondWithinSeconds: 60, ...pkg },
-});
-
-const promptPayload = (balance = 150) => ({
-  chatId: 'chat-1',
-  promptedAt: iso(0),
-  serverTime: iso(0),
-  respondWithinSeconds: 60,
-  ratePerMinute: 20,
-  balanceRemaining: balance,
-  perMinuteAffordable: balance >= 20,
-  packages: quotePackages(20, balance),
+  package: { phase: 'package', endsAt: iso(180_000), warningSeconds: 30, ...pkg },
 });
 
 afterEach(async () => {
@@ -132,8 +117,6 @@ afterEach(async () => {
     mounted.splice(0).forEach(tree => tree.unmount());
   });
   jest.restoreAllMocks();
-  mockApi.extendPackage.mockClear();
-  mockApi.continuePerMinute.mockClear();
 });
 
 /* ======================================================================== */
@@ -264,156 +247,101 @@ describe('intake form — choose consultation type', () => {
 /* ======================================================================== */
 
 describe('live package session', () => {
-  test('counts the package down, warns ~30s out, and freezes when time is up', async () => {
+  test('counts the package down, then warns ~30s out that it continues per-minute', async () => {
     jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
     const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
 
     expect(textOf(tree)).toContain('(03:00 left)');
     expect(textOf(tree)).not.toContain('Package ending in');
-    expect(composer(tree).props.editable).toBe(true);
 
     await ReactTestRenderer.act(() => {
-      firePackageWarning({ chatId: 'chat-1', endsAt: iso(25_000), serverTime: iso(0), secondsLeft: 25 });
+      firePackageWarning({ chatId: 'chat-1', endsAt: iso(25_000), serverTime: iso(0), secondsLeft: 25, ratePerMinute: 20 });
     });
     expect(textOf(tree)).toContain('Package ending in');
     expect(textOf(tree)).toContain('00:25');
+    expect(textOf(tree)).toContain('Then ₹20/min');
+    // Informational only — the chat keeps working.
+    expect(composer(tree).props.editable).toBe(true);
+    // No separate package popup exists any more.
+    expect(textOf(tree)).not.toContain('Extend consultation?');
+  });
+
+  test('when the package runs out the chat simply continues per-minute — no popup', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState({ endsAt: iso(10_000) }) as never);
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
 
     await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(150));
+      firePerMinuteStarted({ chatId: 'chat-1', perMinuteStartedAt: iso(0), serverTime: iso(0), ratePerMinute: 20 });
     });
     const text = textOf(tree);
-    expect(text).toContain('Your package time is over');
-    expect(text).toContain('Extend consultation?');
-    expect(text).toContain('Ends automatically in 01:00');
-    expect(text).toContain('+3 min');
-    expect(text).toContain('+20 min');
-    expect(text).toContain('Continue per-minute · ₹20/min');
-    expect(text).toContain('End consultation');
-    expect(text).toContain('Recharge ₹50'); // 10 min = ₹200 against ₹150
-    expect(composer(tree).props.editable).toBe(false);
-  });
-
-  test('extend with another package: sends the choice, and the timer continues', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
-    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
-    await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(500));
-    });
-
-    await press(tree, 'Extend 5 min for ₹100');
-    expect(mockApi.extendPackage).toHaveBeenCalledTimes(1);
-    expect(mockApi.extendPackage).toHaveBeenCalledWith('chat-1', 5, 100);
-    expect(textOf(tree)).not.toContain('Your package time is over');
-    expect(textOf(tree)).toContain('(05:00 left)');
+    expect(text).not.toContain('left)');
+    expect(text).toContain('mins)');
+    expect(text).not.toContain('Package ending in');
+    expect(text).not.toContain('Extend consultation?');
     expect(composer(tree).props.editable).toBe(true);
+
+    // From here the ordinary per-minute tick updates the wallet pill, same as any chat.
+    await ReactTestRenderer.act(() => {
+      fireTick({ minutesBilled: 1, minutesRemaining: 9, balanceRemaining: 180 });
+    });
+    expect(textOf(tree)).toContain('₹180');
   });
 
-  test('the extend prompt shows discounted packages and extends at the discounted price', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
+  test('a package ending with a short wallet shows the existing Low Balance banner and Recharge popup', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState({ endsAt: iso(25_000) }) as never);
     const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+
+    // What the server sends ~30s out when the wallet can't cover a per-minute minute: the ordinary low-balance warning.
     await ReactTestRenderer.act(() => {
-      firePackageEnded({
-        ...promptPayload(500),
-        packages: [
-          { minutes: 3, discountPercent: 0, originalPrice: 60, price: 60, affordable: true, shortfallAmount: 0 },
-          { minutes: 5, discountPercent: 20, originalPrice: 100, price: 80, affordable: true, shortfallAmount: 0 },
-        ],
-      });
+      fireLowBalance({ chatId: 'chat-1', exhausted: false, secondsUntilCut: 25, requiredAmount: 20, balanceRemaining: 10 });
     });
-    expect(textOf(tree)).toContain('20% OFF');
-    expect(textOf(tree)).toContain('₹100₹80');
+    let text = textOf(tree);
+    expect(text).toContain('Low Balance:');
+    // The package notice steps aside for the existing banner.
+    expect(text).not.toContain('Package ending in');
 
-    await press(tree, 'Extend 5 min for ₹80');
-    expect(mockApi.extendPackage).toHaveBeenCalledWith('chat-1', 5, 80);
-  });
+    await press(tree, 'Recharge wallet');
+    text = textOf(tree);
+    expect(text).toContain('Recharge Now');
+    expect(text).toContain('Minimum balance need to talk is');
+    expect(text).toContain('₹ 20');
 
-  test('an unaffordable package opens the recharge flow instead of charging', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
-    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+    // At the end, unable to pay, the session pauses — the same existing pause as a per-minute chat.
     await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(150));
+      firePerMinuteStarted({ chatId: 'chat-1', perMinuteStartedAt: iso(0), serverTime: iso(0), ratePerMinute: 20 });
+      fireLowBalance({ chatId: 'chat-1', exhausted: true, paused: true, balanceRemaining: 10 });
     });
-
-    await press(tree, 'Extend 20 min for ₹400');
-    expect(mockApi.extendPackage).not.toHaveBeenCalled();
-    expect(textOf(tree)).toContain('Recharge Now');
-    expect(textOf(tree)).toContain('₹ 400');
-  });
-
-  test('a server-side insufficient-balance refusal also lands on recharge', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
-    mockApi.extendPackage.mockRejectedValueOnce(
-      new ApiError('Not enough balance.', 400, undefined, 'insufficient_balance', undefined, { price: 100 }),
-    );
-    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
-    await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(500));
-    });
-    await press(tree, 'Extend 5 min for ₹100');
-    expect(textOf(tree)).toContain('Recharge Now');
-    expect(textOf(tree)).toContain('₹ 100');
-  });
-
-  test('continue per-minute switches to the running per-minute clock', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
-    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
-    await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(500));
-    });
-
-    await press(tree, 'Continue per-minute at ₹20 per minute');
-    expect(mockApi.continuePerMinute).toHaveBeenCalledWith('chat-1');
-    expect(textOf(tree)).not.toContain('Your package time is over');
-    expect(textOf(tree)).not.toContain('left)');
-    expect(textOf(tree)).toContain('mins)');
-    expect(composer(tree).props.editable).toBe(true);
-  });
-
-  test('end at the prompt ends the session, with no extend/per-minute call', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
-    const endSpy = jest.spyOn(api, 'endChat');
-    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
-    await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(500));
-    });
-
-    await press(tree, 'End consultation');
-    expect(endSpy).toHaveBeenCalledWith('chat-1', 'user_ended');
-    expect(mockApi.extendPackage).not.toHaveBeenCalled();
-    expect(mockApi.continuePerMinute).not.toHaveBeenCalled();
-    expect(textOf(tree)).not.toContain('Your package time is over');
-    expect(textOf(tree)).toContain('Chat Ended');
-  });
-
-  test('no answer: when the server auto-ends the session the prompt closes', async () => {
-    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
-    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
-    await ReactTestRenderer.act(() => {
-      firePackageEnded(promptPayload(500));
-    });
-    await ReactTestRenderer.act(() => {
-      fireEnded({ reason: 'package_no_response' });
-    });
-    expect(textOf(tree)).not.toContain('Your package time is over');
-    expect(textOf(tree)).toContain('Chat Ended');
+    expect(textOf(tree)).toContain('Low Balance:');
     expect(composer(tree).props.editable).toBe(false);
+
+    await press(tree, 'Pay Now');
+    expect(textOf(tree)).not.toContain('Recharge Now');
+    expect(textOf(tree)).not.toContain('Low Balance:');
   });
 
-  test('reopening the app mid-prompt restores it from the server state', async () => {
+  test('reopening the app after the switch restores the per-minute view from the server', async () => {
     jest.spyOn(api, 'getChatState').mockImplementation(
-      async () =>
-        packageState({
-          phase: 'awaiting_extension',
-          endsAt: iso(-5_000),
-          promptedAt: iso(-20_000),
-          respondBy: iso(40_000),
-          packages: quotePackages(20, 500),
-          perMinuteAffordable: true,
-        }) as never,
+      async () => packageState({ phase: 'per_minute', endsAt: iso(-60_000), perMinuteStartedAt: iso(-60_000) }) as never,
     );
     const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
-    expect(textOf(tree)).toContain('Your package time is over');
-    expect(textOf(tree)).toContain('Ends automatically in 00:40');
+    expect(textOf(tree)).toContain('mins)');
+    expect(textOf(tree)).not.toContain('left)');
+  });
+
+  test('a package low-balance warning does not lock paid package time; only the actual pause does', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState({ endsAt: iso(25_000) }) as never);
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+    await ReactTestRenderer.act(() => {
+      fireLowBalance({ chatId: 'chat-1', exhausted: false, secondsUntilCut: 25, requiredAmount: 20, balanceRemaining: 10 });
+    });
+    expect(textOf(tree)).toContain('Low Balance:');
+    expect(composer(tree).props.editable).toBe(true);
+
+    await ReactTestRenderer.act(() => {
+      firePerMinuteStarted({ chatId: 'chat-1', perMinuteStartedAt: iso(0), serverTime: iso(0), ratePerMinute: 20 });
+      fireLowBalance({ chatId: 'chat-1', exhausted: true, paused: true, balanceRemaining: 10 });
+    });
+    expect(composer(tree).props.editable).toBe(false);
   });
 
   test('a per-minute session shows none of the package UI (unchanged)', async () => {
@@ -422,6 +350,46 @@ describe('live package session', () => {
     expect(text).toContain('mins)');
     expect(text).not.toContain('left)');
     expect(text).not.toContain('Package ending in');
-    expect(text).not.toContain('Extend consultation?');
+  });
+});
+
+/* ======================================================================== */
+/* Header clock parity with the astrologer app                              */
+/* ======================================================================== */
+
+/**
+ * The same server state astro_app's __tests__/SessionClock.test.tsx uses:
+ * this phone's clock is 10 minutes behind the server's, and the session
+ * started 125s ago by the server's clock. Both headers must read the same.
+ */
+describe('header clock matches the astrologer\'s', () => {
+  const SKEW_MS = 10 * 60 * 1000;
+  const serverIso = (msFromServerNow: number) => new Date(Date.now() + SKEW_MS + msFromServerNow).toISOString();
+  const skewedState = (extra: Record<string, unknown> = {}) => ({
+    chatId: 'chat-1',
+    role: 'user' as const,
+    channel: 'chat',
+    status: 'active',
+    startedAt: serverIso(-125_000),
+    ratePerMinute: 20,
+    minutesBilled: 3,
+    amountCharged: 60,
+    minutesRemaining: 10,
+    serverTime: serverIso(0),
+    ...extra,
+  });
+
+  test('per-minute: counts on the server clock (02:05 — same as the astrologer), not the phone\'s', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(async () => skewedState() as never);
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+    expect(textOf(tree)).toContain('(02:05 mins)');
+  });
+
+  test('package: counts down on the server clock (02:30 left — same as the astrologer)', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(
+      async () => skewedState({ billingMode: 'package', package: { phase: 'package', endsAt: serverIso(150_000), warningSeconds: 30 } }) as never,
+    );
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+    expect(textOf(tree)).toContain('(02:30 left)');
   });
 });

@@ -1,5 +1,5 @@
 /**
- * The pure package logic behind the intake form and the extend prompt
+ * The pure package logic behind the intake form and the package countdown
  * (src/data/consultPackages.ts). The money itself is decided server-side —
  * see backend tests/chat-packages.test.js — this is what the app shows and
  * what it sends.
@@ -9,12 +9,12 @@ import {
   PER_MINUTE,
   canAfford,
   clockOffsetMs,
+  elapsedSeconds,
   isDiscounted,
   formatCountdown,
   packagePrice,
   quotePackages,
   resolveQuotes,
-  respondByFrom,
   secondsUntil,
   shortfallFor,
   toPackageBooking,
@@ -106,7 +106,7 @@ describe('package vs per-minute request', () => {
   });
 });
 
-describe('extension timing', () => {
+describe('package countdown', () => {
   test('countdowns format as mm:ss and never go negative', () => {
     expect(formatCountdown(125)).toBe('02:05');
     expect(formatCountdown(0)).toBe('00:00');
@@ -124,14 +124,18 @@ describe('extension timing', () => {
     expect(secondsUntil('2026-01-01T10:04:30.000Z', 0, deviceNow)).toBe(270);
   });
 
+  test('elapsed time is measured on the server\'s clock, less paused time', () => {
+    const deviceNow = Date.parse('2026-01-01T10:00:00.000Z');
+    const offset = clockOffsetMs('2026-01-01T10:10:00.000Z', deviceNow);
+    expect(elapsedSeconds('2026-01-01T10:07:55.000Z', offset, 0, deviceNow)).toBe(125);
+    expect(elapsedSeconds('2026-01-01T10:07:55.000Z', offset, 5_000, deviceNow)).toBe(120);
+    expect(elapsedSeconds(undefined, offset, 0, deviceNow)).toBe(0);
+  });
+
   test('a finished package, or a missing time, reads as 0 seconds left', () => {
     expect(secondsUntil('2020-01-01T00:00:00.000Z', 0)).toBe(0);
     expect(secondsUntil(undefined, 0)).toBe(0);
     expect(secondsUntil('not a date', 0)).toBe(0);
     expect(clockOffsetMs(undefined)).toBe(0);
-  });
-
-  test('the prompt\'s respond-by is its start plus the response window', () => {
-    expect(respondByFrom('2026-01-01T10:00:00.000Z', 60)).toBe('2026-01-01T10:01:00.000Z');
   });
 });
