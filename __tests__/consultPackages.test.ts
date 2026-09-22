@@ -9,6 +9,7 @@ import {
   PER_MINUTE,
   canAfford,
   clockOffsetMs,
+  isDiscounted,
   formatCountdown,
   packagePrice,
   quotePackages,
@@ -20,7 +21,7 @@ import {
 } from '../src/data/consultPackages';
 
 describe('package price calculation', () => {
-  test('the offered durations live in one list: 3, 5, 10, 20 minutes, no discount yet', () => {
+  test('the offered durations live in one list: 3, 5, 10, 20 minutes; the built-in default is no discount (admin sets real ones)', () => {
     expect(CONSULTATION_PACKAGES.map(p => p.minutes)).toEqual([3, 5, 10, 20]);
     expect(CONSULTATION_PACKAGES.every(p => p.discountPercent === 0)).toBe(true);
   });
@@ -48,6 +49,26 @@ describe('package price calculation', () => {
     expect(resolveQuotes([], 20)).toHaveLength(4);
     expect(resolveQuotes(undefined, undefined)).toEqual([]);
     expect(resolveQuotes(undefined, 0)).toEqual([]);
+  });
+});
+
+describe('admin package discounts', () => {
+  test('local quotes carry the full price as originalPrice', () => {
+    expect(quotePackages(20)[1]).toEqual(expect.objectContaining({ originalPrice: 100, price: 100 }));
+  });
+
+  test('a quote is discounted only when there is a higher original to strike through', () => {
+    expect(isDiscounted({ minutes: 5, discountPercent: 10, originalPrice: 100, price: 90 })).toBe(true);
+    expect(isDiscounted({ minutes: 5, discountPercent: 0, originalPrice: 100, price: 100 })).toBe(false);
+    expect(isDiscounted({ minutes: 5, discountPercent: 10, price: 90 })).toBe(false);
+  });
+
+  test('the discounted price is what gets booked', () => {
+    expect(toPackageBooking({ mode: 'package', minutes: 5, price: 90 })).toEqual({
+      mode: 'package',
+      packageMinutes: 5,
+      quotedPrice: 90,
+    });
   });
 });
 

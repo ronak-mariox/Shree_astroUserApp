@@ -5,6 +5,7 @@ import {
   type ConsultationChoice,
   type PackageQuote,
   canAfford,
+  isDiscounted,
   shortfallFor,
 } from '../data/consultPackages';
 import { rupees } from '../services/api';
@@ -65,18 +66,31 @@ export function ConsultationTypePicker({
         {quotes.map(quote => {
           const selected = value.mode === 'package' && value.minutes === quote.minutes;
           const affordable = quote.affordable ?? canAfford(quote.price, walletBalance);
+          const discounted = isDiscounted(quote);
 
           return (
             <Pressable
               key={quote.minutes}
               accessibilityRole="radio"
               accessibilityState={{ selected }}
-              accessibilityLabel={`${quote.minutes} min package, ${rupees(quote.price)}`}
+              accessibilityLabel={
+                discounted
+                  ? `${quote.minutes} min package, ${rupees(quote.price)}, was ${rupees(quote.originalPrice)}, ${quote.discountPercent}% off`
+                  : `${quote.minutes} min package, ${rupees(quote.price)}`
+              }
               onPress={() => onChange({ mode: 'package', minutes: quote.minutes, price: quote.price })}
               style={({ pressed }) => [styles.tile, selected && styles.selected, pressed && styles.pressed]}
             >
+              {discounted && (
+                <View style={styles.offBadge}>
+                  <Text style={styles.offLabel}>{quote.discountPercent}% OFF</Text>
+                </View>
+              )}
               <Text style={styles.tileMinutes}>{quote.minutes} min</Text>
-              <Text style={styles.tilePrice}>{rupees(quote.price)}</Text>
+              <View style={styles.priceRow}>
+                {discounted && <Text style={styles.tileOriginal}>{rupees(quote.originalPrice)}</Text>}
+                <Text style={styles.tilePrice}>{rupees(quote.price)}</Text>
+              </View>
               {!affordable && <Text style={styles.tileShort}>Low balance</Text>}
             </Pressable>
           );
@@ -88,7 +102,14 @@ export function ConsultationTypePicker({
           <>
             <Text style={styles.summaryLine}>
               {selectedQuote.minutes}-minute {noun} package: {selectedQuote.minutes} × {rupees(ratePerMinute)}
+              {isDiscounted(selectedQuote) ? ` = ${rupees(selectedQuote.originalPrice)}` : ''}
             </Text>
+            {isDiscounted(selectedQuote) && (
+              <Text style={styles.summarySaving}>
+                {selectedQuote.discountPercent}% package discount: −
+                {rupees((selectedQuote.originalPrice ?? selectedQuote.price) - selectedQuote.price)}
+              </Text>
+            )}
             <Text accessibilityLabel={`Total ${rupees(selectedQuote.price)}`} style={styles.summaryTotal}>
               Total {rupees(selectedQuote.price)}
             </Text>
@@ -179,10 +200,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text.onYellow,
   },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+  },
   tilePrice: {
     fontFamily: fontFamily.bold,
     fontSize: 16,
     color: colors.border.intakeSelected,
+  },
+  /** The full price, struck through, beside the discounted one. */
+  tileOriginal: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    color: colors.text.intakeLabel,
+    textDecorationLine: 'line-through',
+  },
+  offBadge: {
+    position: 'absolute',
+    top: -8,
+    right: spacing.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.chip,
+    backgroundColor: colors.status.positive,
+  },
+  offLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 10,
+    color: colors.text.inverse,
+  },
+  summarySaving: {
+    ...typography.caption,
+    color: colors.status.positive,
   },
   tileShort: {
     ...typography.caption,

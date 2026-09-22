@@ -3,7 +3,7 @@ import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from './BrandGradient';
-import { formatCountdown, type PackageQuote } from '../data/consultPackages';
+import { formatCountdown, isDiscounted, type PackageQuote } from '../data/consultPackages';
 import { rupees } from '../services/api';
 import { colors, fontFamily, radius, spacing, typography } from '../theme';
 
@@ -62,6 +62,7 @@ export function ExtendConsultationDialog({
           <View style={styles.grid}>
             {quotes.map(quote => {
               const affordable = quote.affordable !== false;
+              const discounted = isDiscounted(quote);
               return (
                 <Pressable
                   key={quote.minutes}
@@ -72,8 +73,16 @@ export function ExtendConsultationDialog({
                   onPress={() => onExtend(quote)}
                   style={({ pressed }) => [styles.tile, !affordable && styles.tileShort, pressed && styles.pressed]}
                 >
+                  {discounted && (
+                    <View style={styles.offBadge}>
+                      <Text style={styles.offLabel}>{quote.discountPercent}% OFF</Text>
+                    </View>
+                  )}
                   <Text style={styles.tileMinutes}>+{quote.minutes} min</Text>
-                  <Text style={styles.tilePrice}>{rupees(quote.price)}</Text>
+                  <View style={styles.priceRow}>
+                    {discounted && <Text style={styles.tileOriginal}>{rupees(quote.originalPrice)}</Text>}
+                    <Text style={styles.tilePrice}>{rupees(quote.price)}</Text>
+                  </View>
                   {!affordable && <Text style={styles.tileHint}>Recharge {rupees(quote.shortfallAmount)}</Text>}
                 </Pressable>
               );
@@ -187,10 +196,35 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text.onYellow,
   },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+  },
   tilePrice: {
     fontFamily: fontFamily.bold,
     fontSize: 16,
     color: colors.border.intakeSelected,
+  },
+  tileOriginal: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    color: colors.text.intakeLabel,
+    textDecorationLine: 'line-through',
+  },
+  offBadge: {
+    position: 'absolute',
+    top: -8,
+    right: spacing.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.chip,
+    backgroundColor: colors.status.positive,
+  },
+  offLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 10,
+    color: colors.text.inverse,
   },
   tileHint: {
     ...typography.caption,
