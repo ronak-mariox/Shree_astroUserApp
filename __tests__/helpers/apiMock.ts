@@ -258,6 +258,21 @@ export const precheckSession = async () => ({
 export const requestChat = async () => ({
   chatId: 'chat-1', status: 'requested', ratePerMinute: 20, expiresInSeconds: 120,
 });
+/** Package sessions: jest.fn so a test can assert what was sent, or make one refuse. */
+export const extendPackage = jest.fn(async (chatId: string, packageMinutes: number, quotedPrice: number) => ({
+  chatId,
+  packageMinutes,
+  amount: quotedPrice,
+  endsAt: new Date(Date.now() + packageMinutes * 60000).toISOString(),
+  serverTime: new Date().toISOString(),
+  balanceRemaining: 1000,
+}));
+export const continuePerMinute = jest.fn(async (chatId: string) => ({
+  chatId,
+  perMinuteStartedAt: new Date().toISOString(),
+  ratePerMinute: 20,
+  balanceRemaining: 980,
+}));
 export const cancelChat = async () => ({});
 export const endChat = async () => ({
   chatId: 'chat-1', status: 'ended', durationSeconds: 600, amountCharged: 200,
@@ -307,6 +322,11 @@ type ConsultationHandlers = {
   }) => void;
   onAstrologerLeft?: (payload: { chatId: string; reconnectSeconds: number }) => void;
   onAstrologerJoined?: (payload: { chatId: string }) => void;
+  onEnded?: (payload: { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number }) => void;
+  onPackageWarning?: (payload: Record<string, unknown>) => void;
+  onPackageEnded?: (payload: Record<string, unknown>) => void;
+  onPackageExtended?: (payload: Record<string, unknown>) => void;
+  onPerMinuteStarted?: (payload: Record<string, unknown>) => void;
 };
 
 /** Whatever the screen currently under test subscribed with — lets a test fire a live event (see fireAstrologerLeft/fireAstrologerJoined below) the same way the real socket would. */
@@ -356,6 +376,13 @@ export const fireTick = (payload?: { chatId?: string; minutesBilled?: number; mi
     minutesRemaining: payload?.minutesRemaining ?? 0,
     balanceRemaining: payload?.balanceRemaining,
   });
+/** Test-only: the package events, fired the way the real socket would. */
+export const firePackageWarning = (payload: Record<string, unknown>) => consultationHandlers?.onPackageWarning?.(payload);
+export const firePackageEnded = (payload: Record<string, unknown>) => consultationHandlers?.onPackageEnded?.(payload);
+export const firePackageExtended = (payload: Record<string, unknown>) => consultationHandlers?.onPackageExtended?.(payload);
+export const firePerMinuteStarted = (payload: Record<string, unknown>) => consultationHandlers?.onPerMinuteStarted?.(payload);
+export const fireEnded = (payload?: { reason?: string }) =>
+  consultationHandlers?.onEnded?.({ chatId: 'chat-1', endedBy: 'system', reason: payload?.reason, durationSeconds: 240, amountCharged: 60 });
 export const subscribeToRequest = () => () => {};
 
 export const fetchAiThread = async () => ({ chatId: 'ai-1', items: [] });
