@@ -9,8 +9,11 @@
  * packages from the precheck's own `ratePerMinute` when a server quote isn't
  * there (dummy mode, or an older server) — change both together.
  *
- * `discountPercent` is the hook for discounted packages; every entry is 0
- * today, so no discount applies.
+ * Discounts are set per package by an admin (panel → Settings → Platform)
+ * and arrive already applied in the server's quotes: `originalPrice` is the
+ * full minutes × rate (shown struck through) and `price` is the discounted
+ * amount that is actually charged. The 0% defaults below only matter for
+ * the local fallback.
  */
 
 export type ConsultPackage = { minutes: number; discountPercent: number };
@@ -26,6 +29,9 @@ export const CONSULTATION_PACKAGES: ReadonlyArray<ConsultPackage> = [
 export type PackageQuote = {
   minutes: number;
   discountPercent: number;
+  /** minutes × rate, before the admin's discount — the struck-through figure. */
+  originalPrice?: number;
+  /** What is actually charged (after the discount). */
   price: number;
   /** Present when priced against a known wallet balance. */
   affordable?: boolean;
@@ -65,11 +71,13 @@ export function packagePrice(ratePerMinute: number, pkg: ConsultPackage): number
 export function quotePackages(ratePerMinute: number, balance?: number): PackageQuote[] {
   return CONSULTATION_PACKAGES.map(pkg => {
     const price = packagePrice(ratePerMinute, pkg);
+    const originalPrice = Math.round(ratePerMinute * pkg.minutes);
     return balance === undefined
-      ? { minutes: pkg.minutes, discountPercent: pkg.discountPercent, price }
+      ? { minutes: pkg.minutes, discountPercent: pkg.discountPercent, originalPrice, price }
       : {
           minutes: pkg.minutes,
           discountPercent: pkg.discountPercent,
+          originalPrice,
           price,
           affordable: balance >= price,
           shortfallAmount: Math.max(0, price - balance),
@@ -95,6 +103,10 @@ export function resolveQuotes(
   }
   return quotePackages(ratePerMinute, balance);
 }
+
+/** Whether a quote is actually discounted — i.e. there's a higher original price to strike through. */
+export const isDiscounted = (quote: PackageQuote) =>
+  quote.discountPercent > 0 && quote.originalPrice !== undefined && quote.originalPrice > quote.price;
 
 /** How much more the wallet needs to cover `price` — 0 when it already does. */
 export const shortfallFor = (price: number, balance: number) => Math.max(0, Math.round(price - balance));

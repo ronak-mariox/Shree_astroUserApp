@@ -199,6 +199,37 @@ describe('intake form — choose consultation type', () => {
     expect(textOf(tree)).not.toContain('20 min');
   });
 
+  test('an admin discount shows the full price struck through and books the discounted one', async () => {
+    const onConnect = jest.fn();
+    const quotes = [
+      { minutes: 3, discountPercent: 0, originalPrice: 60, price: 60, affordable: true, shortfallAmount: 0 },
+      { minutes: 5, discountPercent: 10, originalPrice: 100, price: 90, affordable: true, shortfallAmount: 0 },
+      { minutes: 10, discountPercent: 20, originalPrice: 200, price: 160, affordable: true, shortfallAmount: 0 },
+      { minutes: 20, discountPercent: 25, originalPrice: 400, price: 300, affordable: true, shortfallAmount: 0 },
+    ];
+    const tree = await render(
+      <ChatIntakeScreen astrologerName="Astro Ragini" ratePerMinute={20} packageQuotes={quotes} walletBalance={1000} onConnect={onConnect} />,
+    );
+    const struck = tree.root.findAll(
+      n => typeof n.type === 'string' && [n.props.style].flat(Infinity).some((st: any) => st?.textDecorationLine === 'line-through'),
+    );
+    expect(struck.map(n => n.props.children)).toEqual(['₹100', '₹200', '₹400']);
+    expect(textOf(tree)).toContain('10% OFF');
+    expect(textOf(tree)).toContain('25% OFF');
+    expect(textOf(tree)).not.toContain('0% OFF₹');
+
+    await press(tree, '5 min package, ₹90, was ₹100, 10% off');
+    expect(textOf(tree)).toContain('10% package discount: −₹10');
+    expect(textOf(tree)).toContain('Total ₹90');
+    expect(textOf(tree)).toContain('Pay ₹90 & Connect With Astro Ragini →');
+
+    await completeForm(tree);
+    await press(tree, 'Connect With Astro Ragini');
+    expect(onConnect).toHaveBeenCalledWith(
+      expect.objectContaining({ consultation: { mode: 'package', minutes: 5, price: 90 } }),
+    );
+  });
+
   test('without a known rate there is nothing to price, so the form stays per-minute only', async () => {
     const tree = await render(<ChatIntakeScreen astrologerName="Astro Ragini" />);
     expect(textOf(tree)).not.toContain('Choose consultation type');
@@ -275,6 +306,25 @@ describe('live package session', () => {
     expect(textOf(tree)).not.toContain('Your package time is over');
     expect(textOf(tree)).toContain('(05:00 left)');
     expect(composer(tree).props.editable).toBe(true);
+  });
+
+  test('the extend prompt shows discounted packages and extends at the discounted price', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(async () => packageState() as never);
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" astrologerName="Astro Rakesh" />);
+    await ReactTestRenderer.act(() => {
+      firePackageEnded({
+        ...promptPayload(500),
+        packages: [
+          { minutes: 3, discountPercent: 0, originalPrice: 60, price: 60, affordable: true, shortfallAmount: 0 },
+          { minutes: 5, discountPercent: 20, originalPrice: 100, price: 80, affordable: true, shortfallAmount: 0 },
+        ],
+      });
+    });
+    expect(textOf(tree)).toContain('20% OFF');
+    expect(textOf(tree)).toContain('₹100₹80');
+
+    await press(tree, 'Extend 5 min for ₹80');
+    expect(mockApi.extendPackage).toHaveBeenCalledWith('chat-1', 5, 80);
   });
 
   test('an unaffordable package opens the recharge flow instead of charging', async () => {
