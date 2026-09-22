@@ -103,6 +103,8 @@ export class ApiError extends Error {
   code?: string;
   /** How long to wait before retrying, when the server said (429s). */
   retryAfterSeconds?: number;
+  /** Numbers the server attached to a refusal — e.g. `shortfallAmount` on insufficient_balance, the new `price` on price_changed. */
+  details?: Record<string, unknown>;
 
   constructor(
     message: string,
@@ -110,6 +112,7 @@ export class ApiError extends Error {
     fields?: Record<string, string>,
     code?: string,
     retryAfterSeconds?: number,
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -117,6 +120,7 @@ export class ApiError extends Error {
     this.fields = fields;
     this.code = code;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.details = details;
   }
 }
 
@@ -126,6 +130,7 @@ type ErrorBody = {
   fields?: Record<string, string>;
   code?: string;
   retryAfterSeconds?: number;
+  details?: Record<string, unknown>;
 };
 
 /** Turns whatever axios threw into an ApiError a screen can print as-is. */
@@ -159,6 +164,7 @@ export function toApiError(error: unknown): ApiError {
     data?.fields,
     data?.code,
     data?.retryAfterSeconds,
+    data?.details,
   );
 }
 

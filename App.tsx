@@ -29,6 +29,7 @@ import {
   subscribeToRequest,
   type Intake,
 } from './src/services/api';
+import { toPackageBooking, type PackageQuote } from './src/data/consultPackages';
 import { ApiError } from './src/services/client';
 import { paymentMethods, type PaymentMethodId } from './src/data/wallet';
 import {
@@ -283,6 +284,16 @@ function App() {
    * fully done with (ended and left, or the request itself fell through).
    */
   const [requestedChatId, setRequestedChatId] = useState<string>();
+  /**
+   * The intake form's pricing for `chatWith`: the real per-minute rate, the
+   * package quotes the server priced from it, and the wallet balance they
+   * were checked against — all from POST /chats/precheck, refreshed every
+   * time the form opens (see the effect below), so a price shown there is
+   * never computed from a guess.
+   */
+  const [chatQuote, setChatQuote] = useState<{ ratePerMinute: number; packages?: PackageQuote[]; balance?: number }>();
+  /** True while "Connect With …" is being sent — the form's button is disabled so a double tap can't send it twice. */
+  const [submittingChat, setSubmittingChat] = useState(false);
   /**
    * What Create Profile collected. Registration is one request at the end of
    * the wizard, so step one is held here until birth details are saved.
@@ -644,16 +655,56 @@ function App() {
    * away, not just a dismissible error.
    */
   const connectChat = async (intake: ChatIntake) => {
-    if (!chatWith) {
+    if (!chatWith || submittingChat) {
       return;
     }
 
+    /** Per-minute sends no `billing` at all, so its request is byte-for-byte what it always was. */
+    const billing = toPackageBooking(intake.consultation);
+
+    setSubmittingChat(true);
     try {
-      const request = await requestChat(chatWith.id, toApiIntake(intake), 'chat');
+      const request = await requestChat(chatWith.id, toApiIntake(intake), 'chat', billing);
       setRequestedChatId(request.chatId);
       setWaitLeft(request.expiresInSeconds);
       setConnecting(true);
     } catch (error) {
+      if (billing && error instanceof ApiError && error.code === 'insufficient_balance') {
+        const shortfall = Number(error.details?.shortfallAmount ?? 0);
+        const price = Number(error.details?.price ?? billing.quotedPrice);
+        Alert.alert(
+          'Insufficient Balance',
+          `The ${billing.packageMinutes}-minute package costs ${rupees(price)}. You need ${rupees(shortfall)} more in your wallet. Please recharge to continue.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Recharge Wallet', onPress: () => setRoute('addMoney') },
+          ],
+        );
+        return;
+      }
+      if (billing && error instanceof ApiError && error.code === 'price_changed') {
+        /**
+         * The astrologer's rate changed after the form was opened. The server
+         * refused rather than charge a price the seeker never saw — show the
+         * new one and let them confirm it (the form re-prices too).
+         */
+        const newPrice = Number(error.details?.price);
+        refreshChatQuote(chatWith.id);
+        Alert.alert(
+          'Price updated',
+          `The ${billing.packageMinutes}-minute package now costs ${rupees(newPrice)}.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: `Pay ${rupees(newPrice)}`,
+              onPress: () => {
+                connectChat({ ...intake, consultation: { mode: 'package', minutes: billing.packageMinutes, price: newPrice } });
+              },
+            },
+          ],
+        );
+        return;
+      }
       if (error instanceof ApiError && error.code === 'insufficient_balance') {
         Alert.alert(
           'Insufficient Balance',
@@ -669,8 +720,32 @@ function App() {
         'Could not start chat',
         error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
       );
+    } finally {
+      setSubmittingChat(false);
     }
   };
+
+  /** Re-reads the rate, package quotes and balance the intake form prices from. A failed read just leaves the form per-minute only. */
+  const refreshChatQuote = (astrologerId: string) => {
+    precheckSession(astrologerId, 'chat')
+      .then(check => {
+        setChatQuote(
+          check.ratePerMinute > 0
+            ? { ratePerMinute: check.ratePerMinute, packages: check.packages, balance: check.balance }
+            : undefined,
+        );
+      })
+      .catch(() => setChatQuote(undefined));
+  };
+
+  /** Fresh pricing every time the form opens — including after a recharge, or via the busy sheet's "Wait". */
+  useEffect(() => {
+    if (route === 'chatIntake' && chatWith?.id) {
+      /** Never show a previous astrologer's (or a stale) price while the fresh one loads. */
+      setChatQuote(undefined);
+      refreshChatQuote(chatWith.id);
+    }
+  }, [route, chatWith?.id]);
 
   /**
    * While the connecting card is up, find out how the astrologer answered.
@@ -1154,6 +1229,11 @@ function App() {
           onBack={() => setRoute(chatOrigin)}
           onMyOrders={() => push('pushedConsultations', 'chatIntake')}
           onConnect={connectChat}
+          channel="chat"
+          ratePerMinute={chatQuote?.ratePerMinute}
+          packageQuotes={chatQuote?.packages}
+          walletBalance={chatQuote?.balance}
+          submitting={submittingChat}
         />
       )}
 

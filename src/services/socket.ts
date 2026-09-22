@@ -13,6 +13,7 @@
 import { io, type Socket } from 'socket.io-client';
 
 import { API_BASE_URL } from './client';
+import type { PackageQuote, PackageView } from '../data/consultPackages';
 import { getAccessToken } from './session';
 
 /** socket.io attaches to the server root, not the REST API's `/api/v1` path. */
@@ -33,6 +34,11 @@ export const CHAT_EVENTS = {
   /** The astrologer's own socket dropping/returning while this chat is active — billing pauses for the gap; see backend/services/chat.service.js's pauseSessionsForAstrologer/resumeSessionsForAstrologer. */
   ASTROLOGER_LEFT: 'chat:astrologer_left',
   ASTROLOGER_JOINED: 'chat:astrologer_joined',
+  /** Package sessions: ~30s left, time up (opens the extend prompt), extended, switched to per-minute — see backend/services/chat.service.js's tickPackageSession. */
+  PACKAGE_WARNING: 'chat:package_warning',
+  PACKAGE_ENDED: 'chat:package_ended',
+  PACKAGE_EXTENDED: 'chat:package_extended',
+  PER_MINUTE_STARTED: 'chat:per_minute_started',
   /** Emitted outside any chat room, to the seeker's own `user:{id}` room — see backend/services/chat.service.js. */
   REQUESTED: 'chat:requested',
   STARTED: 'chat:started',
@@ -120,6 +126,10 @@ export function joinChatRoom(
   seq: number;
   unread: number;
   messages: unknown[];
+  /** Package sessions: the true current package clock/prompt, recovered on every (re)join like `paused`. */
+  billingMode?: 'per_minute' | 'package';
+  package?: PackageView;
+  serverTime?: string;
   error?: string;
 }> {
   return new Promise((resolve, reject) => {
@@ -205,6 +215,32 @@ type LowBalancePayload = {
 };
 type EndedPayload = { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number };
 type AstrologerLeftPayload = { chatId: string; reconnectSeconds: number };
+export type PackageWarningPayload = { chatId: string; endsAt: string; serverTime: string; secondsLeft: number };
+export type PackageEndedPayload = {
+  chatId: string;
+  promptedAt: string;
+  serverTime: string;
+  respondWithinSeconds: number;
+  ratePerMinute: number;
+  balanceRemaining: number;
+  perMinuteAffordable: boolean;
+  packages: PackageQuote[];
+};
+export type PackageExtendedPayload = {
+  chatId: string;
+  packageMinutes: number;
+  amount: number;
+  endsAt: string;
+  serverTime: string;
+  balanceRemaining: number;
+};
+export type PerMinuteStartedPayload = {
+  chatId: string;
+  perMinuteStartedAt: string;
+  serverTime: string;
+  ratePerMinute: number;
+  balanceRemaining: number;
+};
 type AstrologerJoinedPayload = { chatId: string };
 
 /**
@@ -234,7 +270,20 @@ export function subscribeToChat(
      * was briefly disconnected; this is what lets the screen recover the
      * real answer instead of trusting whatever it last happened to see.
      */
-    onRejoinState?: (payload: { status: string; paused: boolean; pausedSince: string | null }) => void;
+    onRejoinState?: (payload: {
+      status: string;
+      paused: boolean;
+      pausedSince: string | null;
+      /** Package sessions only. */
+      package?: PackageView;
+      serverTime?: string;
+    }) => void;
+    /** Package sessions: ~30s left on the current package. */
+    onPackageWarning?: (payload: PackageWarningPayload) => void;
+    /** Package sessions: time is up — the session is frozen and the extend prompt should open. */
+    onPackageEnded?: (payload: PackageEndedPayload) => void;
+    onPackageExtended?: (payload: PackageExtendedPayload) => void;
+    onPerMinuteStarted?: (payload: PerMinuteStartedPayload) => void;
   },
 ): () => void {
   const active = connectSocket();
@@ -247,7 +296,13 @@ export function subscribeToChat(
   const rejoin = () => {
     joinChatRoom(chatId, seq)
       .then(state => {
-        handlers.onRejoinState?.({ status: state.status, paused: state.paused, pausedSince: state.pausedSince });
+        handlers.onRejoinState?.({
+          status: state.status,
+          paused: state.paused,
+          pausedSince: state.pausedSince,
+          package: state.package,
+          serverTime: state.serverTime,
+        });
         for (const message of state.messages as ChatMessage[]) {
           seq = Math.max(seq, message.seq ?? seq);
           handlers.onMessage?.(message);
@@ -284,8 +339,25 @@ export function subscribeToChat(
     if (payload?.chatId === chatId) handlers.onAstrologerJoined?.(payload);
   };
 
+  const onPackageWarning = (payload: PackageWarningPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageWarning?.(payload);
+  };
+  const onPackageEnded = (payload: PackageEndedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageEnded?.(payload);
+  };
+  const onPackageExtended = (payload: PackageExtendedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageExtended?.(payload);
+  };
+  const onPerMinuteStarted = (payload: PerMinuteStartedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPerMinuteStarted?.(payload);
+  };
+
   active.on(CHAT_EVENTS.NEW, onMessage);
   active.on(CHAT_EVENTS.TICK, onTick);
+  active.on(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
+  active.on(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
+  active.on(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
+  active.on(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
   active.on(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
   active.on(CHAT_EVENTS.ENDED, onEnded);
   active.on(CHAT_EVENTS.ASTROLOGER_LEFT, onAstrologerLeft);
@@ -295,6 +367,10 @@ export function subscribeToChat(
     active.off('connect', rejoin);
     active.off(CHAT_EVENTS.NEW, onMessage);
     active.off(CHAT_EVENTS.TICK, onTick);
+    active.off(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
+    active.off(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
+    active.off(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
+    active.off(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
     active.off(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
     active.off(CHAT_EVENTS.ENDED, onEnded);
     active.off(CHAT_EVENTS.ASTROLOGER_LEFT, onAstrologerLeft);

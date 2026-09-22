@@ -7,6 +7,8 @@
  * 180:105058.
  */
 
+import type { ConsultationChoice } from './consultPackages';
+
 export type ChatIntake = {
   fullName: string;
   dateOfBirth: string;
@@ -14,6 +16,8 @@ export type ChatIntake = {
   gender: 'male' | 'female';
   birthPlace: string;
   topic: string;
+  /** Per-minute (the default) or a fixed-length package — see ConsultationTypePicker. Not part of the opening message. */
+  consultation?: ConsultationChoice;
 };
 
 export const TOPICS = [

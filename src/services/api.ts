@@ -14,6 +14,13 @@
 import { client } from './client';
 import { formatBirthDateFromIso, formatBirthTimeFromHHmm } from '../data/chatIntake';
 import {
+  packagePrice,
+  quotePackages,
+  type PackageBooking,
+  type PackageQuote,
+  type PackageView,
+} from '../data/consultPackages';
+import {
   DUMMY_AI_THREAD,
   DUMMY_ASTROLOGERS,
   DUMMY_CONSULTATIONS,
@@ -670,6 +677,8 @@ export async function precheckSession(astrologerId: string, channel = 'chat') {
       minSessionMinutes: 1,
       minutesAffordable: 999,
       shortfallAmount: 0,
+      balance: DUMMY_WALLET.balance,
+      packages: quotePackages(rate, DUMMY_WALLET.balance),
     };
   }
   const { data } = await client.post('/chats/precheck', { astrologerId, channel });
@@ -680,11 +689,22 @@ export async function precheckSession(astrologerId: string, channel = 'chat') {
     minSessionMinutes: number;
     minutesAffordable: number;
     shortfallAmount: number;
+    /** The seeker's wallet balance when this was checked. */
+    balance?: number;
+    /** Every package priced server-side at this astrologer's real rate for `channel` (backend config/packages.js). */
+    packages?: PackageQuote[];
   };
 }
 
-/** Asks an astrologer for a chat. The rate is fixed at this moment. */
-export async function requestChat(astrologerId: string, intake: Intake, channel = 'chat') {
+export type { PackageBooking };
+
+/**
+ * Asks an astrologer for a chat. The rate is fixed at this moment. With a
+ * `billing` package, the package is priced and wallet-checked now but only
+ * charged when the astrologer accepts (in the same step that starts the
+ * session), so a declined or unanswered request never costs anything.
+ */
+export async function requestChat(astrologerId: string, intake: Intake, channel = 'chat', billing?: PackageBooking) {
   if (USE_DUMMY_CONSULTATIONS) {
     const astrologer = DUMMY_ASTROLOGERS.find(row => row.id === astrologerId);
     const service = channel === 'call' ? astrologer?.rates.call : astrologer?.rates.chat;
@@ -692,17 +712,62 @@ export async function requestChat(astrologerId: string, intake: Intake, channel 
       chatId: `chat-${Date.now()}`,
       status: astrologer?.busy ? 'requested' : 'active',
       ratePerMinute: service?.now ?? 0,
+      billingMode: billing ? 'package' : 'per_minute',
+      packageMinutes: billing?.packageMinutes,
       expiresInSeconds: 90,
     };
   }
-  const { data } = await client.post('/chats', { astrologerId, channel, intake });
+  const { data } = await client.post('/chats', billing ? { astrologerId, channel, intake, billing } : { astrologerId, channel, intake });
   return data as {
     chatId: string;
     status: string;
     ratePerMinute: number;
+    billingMode?: 'per_minute' | 'package';
+    packageMinutes?: number;
     expiresInSeconds: number;
   };
 }
+
+/** "Extend with another package" on the extend prompt — priced and wallet-checked again server-side before anything is charged. */
+export async function extendPackage(chatId: string, packageMinutes: number, quotedPrice: number) {
+  if (USE_DUMMY_CONSULTATIONS) {
+    const now = new Date();
+    return {
+      chatId,
+      packageMinutes,
+      amount: quotedPrice,
+      endsAt: new Date(now.getTime() + packageMinutes * 60000).toISOString(),
+      serverTime: now.toISOString(),
+      balanceRemaining: DUMMY_WALLET.balance,
+    };
+  }
+  const { data } = await client.post(`/chats/${chatId}/extend`, { packageMinutes, quotedPrice });
+  return data as {
+    chatId: string;
+    packageMinutes: number;
+    amount: number;
+    endsAt: string;
+    serverTime: string;
+    balanceRemaining: number;
+  };
+}
+
+/** "Continue per-minute" on the extend prompt — the normal per-minute meter runs from here, first minute charged now. */
+export async function continuePerMinute(chatId: string) {
+  if (USE_DUMMY_CONSULTATIONS) {
+    return { chatId, perMinuteStartedAt: new Date().toISOString(), ratePerMinute: 0, balanceRemaining: DUMMY_WALLET.balance };
+  }
+  const { data } = await client.post(`/chats/${chatId}/continue-per-minute`, {});
+  return data as {
+    chatId: string;
+    perMinuteStartedAt: string;
+    ratePerMinute: number;
+    balanceRemaining: number;
+  };
+}
+
+/** Re-exported so screens price packages from one place. */
+export { packagePrice };
 
 export async function cancelChat(chatId: string) {
   if (USE_DUMMY_CONSULTATIONS) return { chatId, status: 'cancelled' };
@@ -751,6 +816,12 @@ export async function getChatState(chatId: string) {
     minutesRemaining?: number;
     endedAt?: string;
     endReason?: string;
+    /** How the session was booked; a package session keeps 'package' even after switching to per-minute (see `package.phase`). */
+    billingMode?: 'per_minute' | 'package';
+    /** Package sessions only — the server-side package clock and, while it's open, the extend prompt's options. */
+    package?: PackageView;
+    /** The server's clock at the time of this read — package countdowns are measured against it, not the device's. */
+    serverTime?: string;
   };
 }
 

@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from '../components/BrandGradient';
+import { ConsultationTypePicker } from '../components/ConsultationTypePicker';
 import { OptionPickerDialog } from '../components/OptionPickerDialog';
 import { WheelPickerDialog } from '../components/WheelPickerDialog';
 import { ArrowLeftIcon } from '../components/icons/ArrowLeftIcon';
@@ -30,8 +31,14 @@ import {
   formatBirthTime,
   type ChatIntake,
 } from '../data/chatIntake';
+import {
+  PER_MINUTE,
+  resolveQuotes,
+  type ConsultationChoice,
+  type PackageQuote,
+} from '../data/consultPackages';
 import { useApi } from '../hooks/useApi';
-import { fetchRecentIntakeContacts } from '../services/api';
+import { fetchRecentIntakeContacts, rupees } from '../services/api';
 import {
   validateName,
   validatePlace,
@@ -69,8 +76,22 @@ type ChatIntakeScreenProps = {
   timeOfBirth?: string;
   onBack?: () => void;
   onMyOrders?: () => void;
-  /** Fired with the completed form when "Connect With …" is pressed. */
+  /** Fired with the completed form (including the chosen `consultation` type) when "Connect With …" is pressed. */
   onConnect?: (intake: ChatIntake) => void;
+  /** 'chat' or 'call' — which of the astrologer's rates the packages are priced at. */
+  channel?: 'chat' | 'call';
+  /**
+   * The astrologer's real per-minute rate for `channel` (from POST
+   * /chats/precheck). Without one no price can be shown, so the
+   * "Choose consultation type" section stays hidden and the request is
+   * per-minute, exactly as before.
+   */
+  ratePerMinute?: number;
+  /** The server's own package quotes for this astrologer — preferred over computing locally. */
+  packageQuotes?: PackageQuote[];
+  walletBalance?: number;
+  /** True while the request is in flight — the button is disabled so a double tap can't send it twice. */
+  submitting?: boolean;
 };
 
 /**
@@ -86,6 +107,11 @@ export function ChatIntakeScreen({
   onBack,
   onMyOrders,
   onConnect,
+  channel = 'chat',
+  ratePerMinute,
+  packageQuotes,
+  walletBalance,
+  submitting = false,
 }: ChatIntakeScreenProps) {
   const insets = useSafeAreaInsets();
   const recentContacts = useApi(() => fetchRecentIntakeContacts(), []);
@@ -112,6 +138,17 @@ export function ChatIntakeScreen({
   const [birthPlace, setBirthPlace] = useState('');
   const [topic, setTopic] = useState('');
   const [picker, setPicker] = useState<'date' | 'time' | 'topic' | null>(null);
+  const [consultation, setConsultation] = useState<ConsultationChoice>(PER_MINUTE);
+  const quotes = resolveQuotes(packageQuotes, ratePerMinute, walletBalance);
+  const offersPackages = ratePerMinute !== undefined && ratePerMinute > 0 && quotes.length > 0;
+  /** A re-priced quote (the rate changed and the screen was handed new quotes) replaces a stale selected price. */
+  const selectedConsultation: ConsultationChoice =
+    consultation.mode === 'package' && offersPackages
+      ? (() => {
+          const quote = quotes.find(entry => entry.minutes === consultation.minutes);
+          return quote ? { mode: 'package', minutes: quote.minutes, price: quote.price } : PER_MINUTE;
+        })()
+      : PER_MINUTE;
   /** Errors stay hidden until Connect is pressed, then follow every keystroke — same convention as ProfileCreationScreen. */
   const [submitted, setSubmitted] = useState(false);
 
@@ -125,6 +162,9 @@ export function ChatIntakeScreen({
   const shown = (field: keyof typeof errors) => (submitted ? errors[field] : undefined);
 
   const connect = () => {
+    if (submitting) {
+      return;
+    }
     setSubmitted(true);
     if (!isFormValid(errors)) {
       return;
@@ -136,6 +176,7 @@ export function ChatIntakeScreen({
       gender,
       birthPlace: birthPlace.trim(),
       topic,
+      consultation: selectedConsultation,
     });
   };
 
@@ -161,7 +202,7 @@ export function ChatIntakeScreen({
           <ArrowLeftIcon />
         </Pressable>
 
-        <Text style={styles.headerTitle}>Chat Intake Form</Text>
+        <Text style={styles.headerTitle}>{channel === 'call' ? 'Call Intake Form' : 'Chat Intake Form'}</Text>
 
         <Pressable
           accessibilityRole="button"
@@ -308,15 +349,34 @@ export function ChatIntakeScreen({
             </Field>
           </View>
 
+          {offersPackages && (
+            <View style={styles.consultation}>
+              <ConsultationTypePicker
+                channel={channel}
+                ratePerMinute={ratePerMinute}
+                quotes={quotes}
+                walletBalance={walletBalance}
+                value={selectedConsultation}
+                onChange={setConsultation}
+              />
+            </View>
+          )}
+
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Connect With ${astrologerName}`}
+            accessibilityState={{ disabled: submitting, busy: submitting }}
+            disabled={submitting}
             onPress={connect}
-            style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.cta, (pressed || submitting) && styles.pressed]}
           >
             <BrandGradient radius={radius.field} />
             <Text style={styles.ctaLabel}>
-              Connect With {astrologerName} →
+              {submitting
+                ? 'Connecting…'
+                : selectedConsultation.mode === 'package'
+                  ? `Pay ${rupees(selectedConsultation.price)} & Connect With ${astrologerName} →`
+                  : `Connect With ${astrologerName} →`}
             </Text>
           </Pressable>
         </ScrollView>
@@ -580,6 +640,9 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.status.debit,
     paddingTop: spacing.xs,
+  },
+  consultation: {
+    paddingTop: spacing.xl,
   },
   cta: {
     height: CTA_HEIGHT,
