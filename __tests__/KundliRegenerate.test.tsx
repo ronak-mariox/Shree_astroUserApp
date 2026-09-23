@@ -104,6 +104,45 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
+test('the tab shows the account\'s own details from the first paint, never a stand-in', async () => {
+  mockApi.fetchCurrentKundli.mockResolvedValue({ found: false, reason: 'not_generated' });
+  /**
+   * The profile request never lands, which is the window the bug lived in: the
+   * tab used to fill the card with the design fixture's person until it came
+   * back, and only told the truth after the app was closed and reopened.
+   */
+  jest.spyOn(api, 'fetchProfile').mockImplementation(() => new Promise(() => {}));
+
+  await saveSession({
+    accessToken: 'test-access',
+    refreshToken: 'test-refresh',
+    user: { id: 'u-9', name: 'Ronak Kumar', email: 'ronak@example.com', phone: '9000000001' } as never,
+  });
+  await ReactTestRenderer.act(async () => {
+    tree = ReactTestRenderer.create(<App />);
+  });
+  for (let i = 0; i < 40; i += 1) {
+    await flush();
+    if (tree.root.findAll(n => typeof n.props.onPress === 'function' && n.props.accessibilityLabel === 'Kundli').length > 0) break;
+    await ReactTestRenderer.act(async () => {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 50));
+    });
+  }
+  await pressLabel(tree, 'Kundli');
+
+  /** The rows the tab actually drew, as the props it was handed. */
+  const rows = tree.root.findByType(KundliScreen).props.birthDetails as Array<{ label: string; value: string }>;
+  const dump = JSON.stringify(rows) + JSON.stringify(tree.toJSON());
+  /** The session already knows who they are — no request needed for the name. */
+  expect(dump).toContain('Ronak Kumar');
+  /** What it printed instead, for as long as the profile took. */
+  expect(dump).not.toContain('Arjun Sharma');
+  expect(dump).not.toContain('15 August 1995');
+  expect(dump).not.toContain('Mumbai, Maharashtra');
+  /** What is genuinely not known yet says so. */
+  expect(dump).toContain('—');
+});
+
 test('a chart already generated for these details: "View Kundli" opens it without generating again', async () => {
   mockApi.fetchCurrentKundli.mockResolvedValue({ found: true, profileId: 'profile-1', status: 'ready' });
   const kundli = await openKundliTab();

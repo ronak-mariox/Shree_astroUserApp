@@ -125,10 +125,3 @@ export const recentConsultations: ReadonlyArray<Consultation> = [
   },
 ];
 
-/** Birth details echoed onto the Kundli screen (node 180:89251). */
-export const birthDetails = [
-  { label: 'Name', value: 'Arjun Sharma' },
-  { label: 'Date', value: '15 August 1995' },
-  { label: 'Time', value: '06:30 AM IST' },
-  { label: 'Place', value: 'Mumbai, Maharashtra' },
-];

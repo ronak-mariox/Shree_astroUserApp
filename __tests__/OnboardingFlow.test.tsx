@@ -1163,19 +1163,49 @@ test('an actual balance pause freezes the running clock, and a resume picks it b
   jest.useRealTimers();
 });
 
-test('kundli renders the stored birth details', async () => {
-  const tree = await render(<KundliScreen />);
+test('kundli renders the account\'s own birth details', async () => {
+  const tree = await render(
+    <KundliScreen
+      birthDetails={[
+        { label: 'Name', value: 'Ronak Kumar' },
+        { label: 'Date', value: '13 May 2004' },
+        { label: 'Time', value: '08:00 AM' },
+        { label: 'Place', value: 'Aligarh, IN' },
+      ]}
+    />,
+  );
   const dump = JSON.stringify(tree.toJSON());
   expect(dump).toContain('Birth Chart');
   expect(dump).toContain('Birth Details');
-  expect(dump).toContain('15 August 1995');
-  expect(dump).toContain('06:30 AM IST');
-  expect(dump).toContain('Mumbai, Maharashtra');
+  expect(dump).toContain('Ronak Kumar');
+  expect(dump).toContain('13 May 2004');
+  expect(dump).toContain('Aligarh, IN');
   expect(dump).toContain('Edit Birth Details');
   expect(dump).toContain('Generate Kundli');
 
   const tabs = findTabs(tree);
   expect(tabs[1].props.accessibilityState.selected).toBe(true);
+});
+
+test('and dashes — never a stand-in person — while they are still loading', async () => {
+  const tree = await render(<KundliScreen />);
+  const dump = JSON.stringify(tree.toJSON());
+
+  /**
+   * This screen used to default to the design fixture, so every seeker was
+   * greeted as Arjun Sharma for as long as the profile request took, and only
+   * told the truth after a restart.
+   */
+  expect(dump).not.toContain('Arjun Sharma');
+  expect(dump).not.toContain('15 August 1995');
+  expect(dump).not.toContain('Mumbai, Maharashtra');
+
+  /** The card keeps its four rows, so nothing jumps when the real values land. */
+  expect(dump).toContain('Birth Details');
+  for (const label of ['Name', 'Date', 'Time', 'Place']) {
+    expect(dump).toContain(label);
+  }
+  expect(dump).toContain('—');
 });
 
 /** Composite Pressable nodes carry onPress; host views only mirror the a11y props. */

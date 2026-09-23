@@ -1278,14 +1278,19 @@ function App() {
           activeTab="kundli"
           onSelectTab={selectTab}
           onBack={() => setRoute('home')}
-          birthDetails={
-            profile && [
-              { label: 'Name', value: profile.name ?? session?.user.name ?? '—' },
-              { label: 'Date', value: dobFromIso(profile.birthDetails?.dateOfBirth) || '—' },
-              { label: 'Time', value: profile.birthDetails?.timeOfBirth || '—' },
-              { label: 'Place', value: profile.birthDetails?.place?.formatted || '—' },
-            ]
-          }
+          /**
+           * Always the account's own, never a stand-in: the name is known from
+           * the restored session before the profile request has even been sent,
+           * and anything still unknown is a dash. Gating the whole card on
+           * `profile` is what left the tab showing the design fixture's person
+           * until that request came back.
+           */
+          birthDetails={[
+            { label: 'Name', value: profile?.name ?? session?.user.name ?? '—' },
+            { label: 'Date', value: dobFromIso(profile?.birthDetails?.dateOfBirth) || '—' },
+            { label: 'Time', value: profile?.birthDetails?.timeOfBirth || '—' },
+            { label: 'Place', value: profile?.birthDetails?.place?.formatted || '—' },
+          ]}
           hasKundli={Boolean(kundliProfileId)}
           onEditBirthDetails={() => {
             /**

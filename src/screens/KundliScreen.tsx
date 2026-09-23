@@ -13,7 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { birthDetails as birthDetailsFixture } from '../data/home';
 import {
   colors,
   designFrame,
@@ -28,13 +27,28 @@ const DESIGN_PADDING_TOP = 56;
 const CTA_HEIGHT = 55.998;
 const EDIT_BUTTON_HEIGHT = 35.999;
 
+/** What the card shows before the account's own details have arrived. */
+const PENDING_BIRTH_DETAILS = [
+  { label: 'Name', value: '—' },
+  { label: 'Date', value: '—' },
+  { label: 'Time', value: '—' },
+  { label: 'Place', value: '—' },
+] as const;
+
 type KundliScreenProps = {
   onBack?: () => void;
   onEditBirthDetails?: () => void;
   onGenerateKundli?: () => void;
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
-  /** The signed-in account's own details; falls back to the design fixture when not yet loaded. */
+  /**
+   * The signed-in account's own details.
+   *
+   * Left out while they load, the rows below are drawn with dashes — never with
+   * a stand-in person. This used to default to the design fixture, so the tab
+   * greeted every seeker as "Arjun Sharma, 15 August 1995, Mumbai" for as long
+   * as the profile request took, and only told the truth after a restart.
+   */
   birthDetails?: ReadonlyArray<{ label: string; value: string }>;
   /** True once a kundli already exists for this account — the CTA reads "View" instead of "Generate". */
   hasKundli?: boolean;
@@ -50,10 +64,12 @@ export function KundliScreen({
   onGenerateKundli,
   activeTab = 'kundli',
   onSelectTab,
-  birthDetails = birthDetailsFixture,
+  birthDetails,
   hasKundli = false,
 }: KundliScreenProps) {
   const insets = useSafeAreaInsets();
+  /** Same four labels either way, so the card does not jump when the values arrive. */
+  const rows = birthDetails ?? PENDING_BIRTH_DETAILS;
 
   return (
     <View style={styles.screen}>
@@ -87,7 +103,7 @@ export function KundliScreen({
             <Text style={styles.cardTitle}>Birth Details</Text>
 
             <View style={styles.rows}>
-              {birthDetails.map(detail => (
+              {rows.map(detail => (
                 <View key={detail.label} style={styles.row}>
                   <Text style={styles.rowLabel}>{detail.label}</Text>
                   <Text style={styles.rowValue}>{detail.value}</Text>
