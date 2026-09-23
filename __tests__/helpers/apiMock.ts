@@ -13,6 +13,7 @@ export const {
   joinLabels,
   rupees,
   minutesOf,
+  minutesLabel,
   shortDate,
   dateTime,
   timeAgo,
@@ -419,7 +420,14 @@ export const markNotificationsRead = async (notificationId?: string) => {
   }
   return { updated: NOTIFICATIONS.length, unread: NOTIFICATIONS.filter(row => !row.readAt).length };
 };
-export const raiseTicket = async () => ({ id: 't-1', reference: 'TKT-ABC' });
+export const raiseTicket = jest.fn(async (issueType: string, description: string, chatId?: string) => ({
+  id: 't-1',
+  reference: 'TKT-ABC',
+  issueType,
+  description,
+  chatId,
+  status: 'open',
+}));
 
 export const fetchSettings = async () => ({
   minRecharge: 10,

@@ -22,11 +22,21 @@ type OptionPickerDialogProps = {
   value: string;
   onCancel: () => void;
   onSubmit: (value: string) => void;
+  /**
+   * Acts on the first tap, with no Submit to press afterwards.
+   *
+   * A form field is chosen and then confirmed — the seeker is filling something
+   * in, and may change their mind before committing. A menu is not: tapping
+   * "Share Profile" and then having to confirm it is a tap nobody expects. Same
+   * card either way, so the app keeps one vocabulary for both.
+   */
+  submitOnSelect?: boolean;
 };
 
 /**
  * The list behind the intake form's "Topic of concern" field, cut to the same
- * card as the date and time wheels (Figma node 180:98361).
+ * card as the date and time wheels (Figma node 180:98361) — and, with
+ * `submitOnSelect`, the menu behind a screen's own header actions.
  */
 export function OptionPickerDialog({
   visible,
@@ -35,6 +45,7 @@ export function OptionPickerDialog({
   value,
   onCancel,
   onSubmit,
+  submitOnSelect = false,
 }: OptionPickerDialogProps) {
   const [chosen, setChosen] = useState(value);
 
@@ -69,10 +80,10 @@ export function OptionPickerDialog({
               return (
                 <Pressable
                   key={option}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
+                  accessibilityRole={submitOnSelect ? 'button' : 'radio'}
+                  accessibilityState={submitOnSelect ? undefined : { selected }}
                   accessibilityLabel={option}
-                  onPress={() => setChosen(option)}
+                  onPress={() => (submitOnSelect ? onSubmit(option) : setChosen(option))}
                   style={({ pressed }) => [
                     styles.row,
                     pressed && styles.pressed,
@@ -100,6 +111,7 @@ export function OptionPickerDialog({
               <Text style={styles.cancelLabel}>Cancel</Text>
             </Pressable>
 
+            {!submitOnSelect && (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Submit"
@@ -115,6 +127,7 @@ export function OptionPickerDialog({
               <BrandGradient radius={radius.button} />
               <Text style={styles.submitLabel}>Submit</Text>
             </Pressable>
+            )}
           </View>
         </View>
       </View>

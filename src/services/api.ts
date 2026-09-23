@@ -79,6 +79,29 @@ export const rupees = (value?: number) => `₹${Math.round(Number(value) || 0).t
 export const minutesOf = (seconds?: number) =>
   seconds ? `${Math.ceil(seconds / 60)} min` : '—';
 
+/**
+ * How much an astrologer has actually consulted for, on a stat tile:
+ * 88 -> "88 Mins", 9800 -> "9.8K Mins", 42000 -> "42K Mins".
+ *
+ * It used to be `Math.round(minutes / 1000)` with a hardcoded "K", which reads
+ * every real astrologer on the platform as "0K Mins" — 88 minutes rounds to
+ * zero thousand. Only the seeded fixtures, with their tens of thousands, ever
+ * looked right.
+ *
+ * So the unit follows the number: minutes while there are hundreds of them, one
+ * decimal of a thousand up to 10K (9.8K, not 10K), and whole thousands past
+ * that, where a decimal is noise.
+ */
+export const minutesLabel = (minutes?: number) => {
+  const value = Math.max(Math.round(Number(minutes) || 0), 0);
+  if (value < 1000) {
+    return `${value} ${value === 1 ? 'Min' : 'Mins'}`;
+  }
+  const thousands = value / 1000;
+  const scaled = thousands < 10 ? thousands.toFixed(1).replace(/\.0$/, '') : String(Math.round(thousands));
+  return `${scaled}K Mins`;
+};
+
 /** An ISO date -> "12 Jul 2026". */
 export const shortDate = (value?: string) =>
   value

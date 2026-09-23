@@ -1128,14 +1128,6 @@ function App() {
             })
           }
           onCall={() => startCall('astrologerDetail', astrologer?.name)}
-          onMoreOptions={() =>
-            comeBackLater(
-              'astrologerDetail',
-              'More Options',
-              'Sharing, reporting and blocking an astrologer arrive with the consultation release.',
-              '⋯',
-            )
-          }
         />
       )}
 
