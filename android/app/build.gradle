@@ -92,15 +92,48 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        /**
+         * The upload key a store build must be signed with.
+         *
+         * Configured outside this repository, so the keystore and its
+         * passwords are never committed: put the four properties in
+         * ~/.gradle/gradle.properties (or pass them with -P, or set them as
+         * ORG_GRADLE_PROJECT_* in CI).
+         *
+         *   SHREEASTRO_UPLOAD_STORE_FILE=/absolute/path/to/upload.keystore
+         *   SHREEASTRO_UPLOAD_STORE_PASSWORD=...
+         *   SHREEASTRO_UPLOAD_KEY_ALIAS=upload
+         *   SHREEASTRO_UPLOAD_KEY_PASSWORD=...
+         *
+         * Generate it once, and keep it — an app already on Play can only be
+         * updated by builds signed with the same key:
+         *
+         *   keytool -genkeypair -v -storetype PKCS12 -keystore upload.keystore \
+         *     -alias upload -keyalg RSA -keysize 2048 -validity 10000
+         */
+        release {
+            if (project.hasProperty('SHREEASTRO_UPLOAD_STORE_FILE')) {
+                storeFile file(project.property('SHREEASTRO_UPLOAD_STORE_FILE'))
+                storePassword project.property('SHREEASTRO_UPLOAD_STORE_PASSWORD')
+                keyAlias project.property('SHREEASTRO_UPLOAD_KEY_ALIAS')
+                keyPassword project.property('SHREEASTRO_UPLOAD_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            /**
+             * The real key when one is configured, the debug key otherwise —
+             * so `assembleRelease` still works on a machine with no keystore,
+             * for testing a release build locally. A store upload must use the
+             * real one: Play refuses anything signed with the debug key.
+             */
+            signingConfig(project.hasProperty('SHREEASTRO_UPLOAD_STORE_FILE')
+                ? signingConfigs.release
+                : signingConfigs.debug)
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

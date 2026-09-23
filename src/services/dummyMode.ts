@@ -1,12 +1,18 @@
 /**
- * Temporary: most of the app still runs off fixture data instead of the real
- * backend — reads return `./dummyData`, and writes simulate success against
- * it — so every screen and button is walkable with nothing running behind it.
- * Every function's real `client` call is left in place beneath the early
- * return it guards; flip this to `false`, screen by screen as each backend
- * contract is verified, to go back to live endpoints.
+ * The last of the fixture switches, now off: every screen runs against the
+ * real backend.
+ *
+ * It used to stand in for the whole app while the backend was being wired up,
+ * and the flags below took each verified area out from under it one at a
+ * time. What was left under it by the end — `fetchSettings` (the
+ * admin-configured recharge limits Add Money validates against),
+ * `fetchHoroscope`, `updateNotificationPrefs`, `raiseTicket`, and the older
+ * `/users/me/kundlis` trio — is verified against the live endpoints too, so
+ * the fixtures are no longer served anywhere. Left in place, rather than
+ * deleted with every `if` it guards, so a screen can still be walked offline
+ * by flipping it back.
  */
-export const USE_DUMMY_DATA = true;
+export const USE_DUMMY_DATA = false;
 
 /**
  * Sign-up, sign-in, sign-out, and the seeker's own profile (`services/auth.ts`,
