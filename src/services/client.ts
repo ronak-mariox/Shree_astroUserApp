@@ -45,7 +45,20 @@ const DEV_HOST = Platform.select({
 
 const DEV_PORT = 5000;
 
-export const API_BASE_URL = `http://${DEV_HOST}:${DEV_PORT}/api/v1`;
+/**
+ * Where the API lives in a release build.
+ *
+ * A packaged app has no packager machine behind it, so the DEV_HOST above is
+ * unreachable on a real handset — a release build must point at the deployed
+ * API, over https, or every screen fails to load. Change this one line when
+ * the API moves; `services/socket.ts` derives the socket origin from it, so
+ * sockets follow along.
+ */
+const PROD_API_BASE_URL = 'https://shree-astro-backend.vercel.app/api/v1';
+
+export const API_BASE_URL = __DEV__
+  ? `http://${DEV_HOST}:${DEV_PORT}/api/v1`
+  : PROD_API_BASE_URL;
 
 /** How long a request may take before it is treated as unreachable. */
 const TIMEOUT_MS = 15000;

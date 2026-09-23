@@ -560,15 +560,32 @@ function App() {
 
   /**
    * Saving birth details registers the account when the user got here through
-   * sign-up; reached from the profile instead, it is only an edit. Errors are
-   * left to reject so the screen can keep the user on the form and print them.
+   * sign-up; reached from the Kundli tab (or the profile) instead, it is an
+   * edit, so the new details are written to the account — a save that only
+   * navigated away would silently lose them. Errors are left to reject so the
+   * screen can keep the user on the form and print them.
+   *
+   * Changing any of these means the kundli already generated no longer
+   * describes this birth: the Kundli tab re-checks against the account's
+   * details on open (GET /kundli/me) and offers to generate the new chart.
    */
   const saveBirthDetails = async (details: BirthDetails) => {
     if (signUp) {
       await register({ profile: signUp.profile, birth: details, photo: signUp.photo });
       setSignUp(undefined);
+      setRoute(LANDING_ROUTE);
+      return;
     }
-    setRoute(LANDING_ROUTE);
+
+    const updated = await saveProfile({
+      dateOfBirth: details.dateOfBirth,
+      timeOfBirth: details.timeOfBirth,
+      placeOfBirth: details.placeOfBirth,
+    });
+    setProfile(updated);
+    /** Saved — nothing half-typed left to restore if this screen is opened again. */
+    setBirthDetailsDraft(undefined);
+    setRoute(birthDetailsOrigin === 'birthDetails' ? LANDING_ROUTE : birthDetailsOrigin);
   };
 
   /**

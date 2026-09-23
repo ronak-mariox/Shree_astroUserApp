@@ -33,6 +33,21 @@ jest.mock('react-native-safe-area-context', () => {
 
 const mockApi = api as unknown as { fetchCurrentKundli: jest.Mock; createBirthProfile: jest.Mock };
 
+/** The account's birth details, as GET /users/me returns them. */
+const profileWith = (timeOfBirth: string) => ({
+  id: 'u-1',
+  name: 'Arjun Sharma',
+  email: 'arjun@example.com',
+  phone: '9876543210',
+  wallet: { balance: 1250, totalAdded: 3000, totalSpent: 1750 },
+  stats: { consultations: 12, kundlis: 3 },
+  birthDetails: {
+    dateOfBirth: '1995-08-15T00:00:00.000Z',
+    timeOfBirth,
+    place: { formatted: 'Mumbai, Maharashtra' },
+  },
+});
+
 const flush = async () => {
   await ReactTestRenderer.act(async () => {
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
@@ -160,4 +175,68 @@ test('generating from the form opens the new chart', async () => {
     expect.objectContaining({ dateOfBirth: '15/08/1995', timeOfBirth: '06:30 AM', placeId: 'place:mumbai#0' }),
   );
   expect(tree.root.findByType(KundliResultScreen).props.profileId).toBe('profile-new');
+});
+
+test('editing birth details from the Kundli tab SAVES them, and comes back to the tab', async () => {
+  mockApi.fetchCurrentKundli.mockResolvedValue({ found: true, profileId: 'profile-1', status: 'ready' });
+  jest.spyOn(api, 'fetchProfile').mockResolvedValue(profileWith('06:30') as never);
+  const saveProfile = jest
+    .spyOn(api, 'saveProfile')
+    .mockResolvedValue(profileWith('23:45') as never);
+
+  const kundli = await openKundliTab();
+  expect(kundli.props.birthDetails).toEqual(
+    expect.arrayContaining([expect.objectContaining({ label: 'Time', value: '06:30' })]),
+  );
+
+  await ReactTestRenderer.act(async () => {
+    await kundli.props.onEditBirthDetails();
+  });
+  await flush();
+  const form = tree.root.findByType(BirthDetailsScreen);
+  expect(form.props.initialDetails).toEqual(
+    expect.objectContaining({ timeOfBirth: expect.any(String), placeOfBirth: 'Mumbai, Maharashtra' }),
+  );
+
+  // Change the time of birth and press Save & Continue.
+  await ReactTestRenderer.act(async () => {
+    await form.props.onSave({
+      dateOfBirth: '15/08/1995',
+      timeOfBirth: '11 : 45 PM',
+      placeOfBirth: 'Mumbai, Maharashtra',
+    });
+  });
+  await flush();
+
+  // It was actually written to the account…
+  expect(saveProfile).toHaveBeenCalledWith({
+    dateOfBirth: '15/08/1995',
+    timeOfBirth: '11 : 45 PM',
+    placeOfBirth: 'Mumbai, Maharashtra',
+  });
+  // …the Kundli tab is back, showing what was saved…
+  expect(tree.root.findAllByType(BirthDetailsScreen)).toHaveLength(0);
+  expect(tree.root.findByType(KundliScreen).props.birthDetails).toEqual(
+    expect.arrayContaining([expect.objectContaining({ label: 'Time', value: '23:45' })]),
+  );
+  // …and no chart was generated behind the seeker's back.
+  expect(mockApi.createBirthProfile).not.toHaveBeenCalled();
+});
+
+test('a failed save keeps the seeker on the form (nothing silently lost)', async () => {
+  mockApi.fetchCurrentKundli.mockResolvedValue({ found: false, reason: 'not_generated' });
+  jest.spyOn(api, 'fetchProfile').mockResolvedValue(profileWith('06:30') as never);
+  jest.spyOn(api, 'saveProfile').mockRejectedValue(new Error('Network unreachable'));
+
+  const kundli = await openKundliTab();
+  await ReactTestRenderer.act(async () => {
+    await kundli.props.onEditBirthDetails();
+  });
+  await flush();
+
+  const form = tree.root.findByType(BirthDetailsScreen);
+  await expect(
+    form.props.onSave({ dateOfBirth: '15/08/1995', timeOfBirth: '11 : 45 PM', placeOfBirth: 'Mumbai, Maharashtra' }),
+  ).rejects.toThrow('Network unreachable');
+  expect(tree.root.findAllByType(BirthDetailsScreen)).toHaveLength(1);
 });
