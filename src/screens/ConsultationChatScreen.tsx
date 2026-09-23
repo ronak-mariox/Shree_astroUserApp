@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -550,6 +551,36 @@ export function ConsultationChatScreen({
       );
     }
   };
+
+  /**
+   * Android's own back button, while a consultation is live.
+   *
+   * Nothing handled it before, so back did what it does when no screen claims
+   * it: left the app — mid-consultation, with the meter running, and no way to
+   * say whether that was meant. It asks now, exactly as the header's red cross
+   * does, so leaving this screen is always a decision rather than an accident.
+   *
+   * (Leaving anyway — closing or killing the app — is still handled, on the
+   * server: the socket drops, and the session ends after a short grace rather
+   * than billing an app that is gone. See chat.service.js's markUserAway.)
+   */
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      /** Back out of the question itself, rather than stacking dialogs. */
+      if (endChatVisible) {
+        setEndChatVisible(false);
+        return true;
+      }
+      /** Already over: back leaves the chat, instead of leaving the app. */
+      if (closed) {
+        onEnd?.();
+        return true;
+      }
+      setEndChatVisible(true);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [closed, endChatVisible, onEnd]);
 
   const confirmEndChat = async () => {
     setEndChatVisible(false);
