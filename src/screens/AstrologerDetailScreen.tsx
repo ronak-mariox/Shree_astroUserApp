@@ -14,7 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from '../components/BrandGradient';
-import { OptionPickerDialog } from '../components/OptionPickerDialog';
+import { MoreOptionsSheet, type MoreOption } from '../components/MoreOptionsSheet';
+import { ReportIcon, ShareIcon } from '../components/icons/MoreOptionsIcons';
 import {
   BackArrowIcon,
   CallNowIcon,
@@ -56,22 +57,34 @@ const CTA_HEIGHT = 49;
  * What the header's kebab offers. Both do something real: Share hands the
  * profile to whatever the phone can share with, and Report files a support
  * ticket (issueType 'astrologer') that lands on the admin panel's Disputes tab
- * for somebody to answer.
+ * for somebody to answer. Each says so on the row itself — "Report" alone leaves
+ * a seeker guessing whether anything is sent, or to whom.
  *
  * Blocking is deliberately not here — nothing on the server can block an
  * astrologer for one seeker yet, and an option that quietly does nothing is
  * worse than one that isn't offered.
  */
-const MORE_OPTIONS = ['Share Profile', 'Report Astrologer'] as const;
+const SHARE_PROFILE = 'Share Profile';
+const REPORT_ASTROLOGER = 'Report Astrologer';
+
+const MORE_OPTIONS: ReadonlyArray<MoreOption> = [
+  { label: SHARE_PROFILE, hint: 'Send this astrologer to a friend', icon: ShareIcon },
+  {
+    label: REPORT_ASTROLOGER,
+    hint: 'Tell our team about a problem with this astrologer',
+    icon: ReportIcon,
+    destructive: true,
+  },
+];
 
 /** Why somebody reports an astrologer — the reason becomes the ticket's own words. */
-const REPORT_REASONS = [
-  'Rude or inappropriate behaviour',
-  'Misleading or false predictions',
-  'Asked for payment outside the app',
-  'Ended the consultation early',
-  'Something else',
-] as const;
+const REPORT_REASONS: ReadonlyArray<MoreOption> = [
+  { label: 'Rude or inappropriate behaviour', icon: ReportIcon, destructive: true },
+  { label: 'Misleading or false predictions', icon: ReportIcon, destructive: true },
+  { label: 'Asked for payment outside the app', icon: ReportIcon, destructive: true },
+  { label: 'Ended the consultation early', icon: ReportIcon, destructive: true },
+  { label: 'Something else', icon: ReportIcon, destructive: true },
+];
 
 type AstrologerDetailScreenProps = {
   /** Whoever was tapped in the list; omitted, the pinned profile is shown. */
@@ -442,33 +455,31 @@ export function AstrologerDetailScreen({
         </Pressable>
       </View>
 
-      <OptionPickerDialog
+      <MoreOptionsSheet
         visible={menu === 'options'}
         title="More Options"
+        subtitle={profile.name}
         options={MORE_OPTIONS}
-        value=""
-        submitOnSelect
-        onCancel={() => setMenu(null)}
-        onSubmit={chosen => {
-          if (chosen === 'Report Astrologer') {
+        onClose={() => setMenu(null)}
+        onSelect={chosen => {
+          if (chosen === REPORT_ASTROLOGER) {
             setMenu('report');
             return;
           }
           setMenu(null);
-          if (chosen === 'Share Profile') {
+          if (chosen === SHARE_PROFILE) {
             shareProfile();
           }
         }}
       />
 
-      <OptionPickerDialog
+      <MoreOptionsSheet
         visible={menu === 'report'}
-        title={`Report ${profile.name || 'Astrologer'}`}
+        title="What went wrong?"
+        subtitle={`Reporting ${profile.name || 'this astrologer'} — our team reads every report`}
         options={REPORT_REASONS}
-        value=""
-        submitOnSelect
-        onCancel={() => setMenu(null)}
-        onSubmit={reportAstrologer}
+        onClose={() => setMenu(null)}
+        onSelect={reportAstrologer}
       />
     </View>
   );

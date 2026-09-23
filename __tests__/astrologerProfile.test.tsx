@@ -13,7 +13,7 @@ import { Alert, Share } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { OptionPickerDialog } from '../src/components/OptionPickerDialog';
+import { MoreOptionsSheet } from '../src/components/MoreOptionsSheet';
 import { AstrologerDetailScreen } from '../src/screens/AstrologerDetailScreen';
 import * as api from '../src/services/api';
 
@@ -133,7 +133,7 @@ describe('the header\'s More Options', () => {
 
   /** The sheet currently on screen, of the two the header can open. */
   const openSheet = (tree: ReactTestRenderer.ReactTestRenderer) =>
-    tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)[0];
+    tree.root.findAllByType(MoreOptionsSheet).filter(d => d.props.visible)[0];
 
   /** Taps the row itself — a menu acts on the first tap, with no Submit to press. */
   const choose = async (tree: ReactTestRenderer.ReactTestRenderer, option: string) => {
@@ -158,7 +158,13 @@ describe('the header\'s More Options', () => {
     await openMenu(tree);
 
     expect(openSheet(tree).props.title).toBe('More Options');
-    expect(openSheet(tree).props.options).toEqual(['Share Profile', 'Report Astrologer']);
+    expect(openSheet(tree).props.options.map((o: { label: string }) => o.label)).toEqual([
+      'Share Profile',
+      'Report Astrologer',
+    ]);
+    /** Each row says what pressing it does, rather than leaving it to be guessed. */
+    expect(textOf(tree)).toContain('Send this astrologer to a friend');
+    expect(textOf(tree)).toContain('Tell our team about a problem');
     /** What it used to do instead. */
     expect(textOf(tree)).not.toContain('Coming Soon');
   });
@@ -176,7 +182,7 @@ describe('the header\'s More Options', () => {
 
     expect(onMoreOptions).toHaveBeenCalledTimes(1);
     /** Its own sheet stays shut — the caller decided what happens instead. */
-    expect(tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)).toHaveLength(0);
+    expect(tree.root.findAllByType(MoreOptionsSheet).filter(d => d.props.visible)).toHaveLength(0);
   });
 
   test('one tap is enough — a menu has nothing to confirm', async () => {
@@ -184,11 +190,12 @@ describe('the header\'s More Options', () => {
     await openMenu(tree);
 
     const sheet = openSheet(tree);
-    expect(sheet.props.submitOnSelect).toBe(true);
     /** The form-field vocabulary — pick, then Submit — does not belong on a menu. */
     expect(
       sheet.findAll(n => typeof n.props.accessibilityLabel === 'string' && n.props.accessibilityLabel === 'Submit'),
     ).toHaveLength(0);
+    /** Backing out is still one tap away. */
+    expect(sheet.findAll(n => n.props.accessibilityLabel === 'Cancel').length).toBeGreaterThan(0);
   });
 
   test('Share Profile hands the profile to the phone', async () => {
@@ -215,8 +222,11 @@ describe('the header\'s More Options', () => {
     await choose(tree, 'Report Astrologer');
 
     /** A second sheet, naming who is being reported. */
-    expect(openSheet(tree).props.title).toBe('Report Pt. Rajesh Sharma');
-    expect(openSheet(tree).props.options).toContain('Asked for payment outside the app');
+    expect(openSheet(tree).props.title).toBe('What went wrong?');
+    expect(textOf(tree)).toContain('Reporting Pt. Rajesh Sharma');
+    expect(openSheet(tree).props.options.map((o: { label: string }) => o.label)).toContain(
+      'Asked for payment outside the app',
+    );
 
     await choose(tree, 'Rude or inappropriate behaviour');
 
@@ -231,7 +241,7 @@ describe('the header\'s More Options', () => {
 
     expect(alert).toHaveBeenCalledWith('Report sent', expect.stringContaining('look into it'));
     /** And the sheets are done with. */
-    expect(tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)).toHaveLength(0);
+    expect(tree.root.findAllByType(MoreOptionsSheet).filter(d => d.props.visible)).toHaveLength(0);
   });
 
   test('a report that fails to send says so, rather than pretending', async () => {
@@ -252,10 +262,10 @@ describe('the header\'s More Options', () => {
 
     await openMenu(tree);
     await ReactTestRenderer.act(() => {
-      openSheet(tree).props.onCancel();
+      openSheet(tree).props.onClose();
     });
 
-    expect(tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)).toHaveLength(0);
+    expect(tree.root.findAllByType(MoreOptionsSheet).filter(d => d.props.visible)).toHaveLength(0);
     expect(api.raiseTicket).not.toHaveBeenCalled();
   });
 });
