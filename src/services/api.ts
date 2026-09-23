@@ -184,6 +184,40 @@ export async function fetchHoroscope(sign?: string) {
   return sign ? data.horoscope : data;
 }
 
+/** One day's reading, as GET /horoscope/daily answers it. */
+export type DailyHoroscope = {
+  sign: string;
+  /** "YYYY-MM-DD" for the day this reading is about. */
+  date: string;
+  /** The day in one line — the provider's own "luck" note. */
+  summary: string;
+  /** The six areas the provider writes about. Any of them can come back empty. */
+  sections: {
+    personal_life: string;
+    profession: string;
+    health: string;
+    emotions: string;
+    travel: string;
+    luck: string;
+  };
+  lucky_number?: number;
+  lucky_color?: string;
+  energy?: string;
+};
+
+/**
+ * The full reading for one sign (GET /horoscope/daily), which is what the Home
+ * card's three highlights are cut down from — same source, all of it.
+ *
+ * `day` moves a day either side of today; the provider is asked once per sign
+ * per day across the whole platform and cached, so paging back and forth costs
+ * nothing after the first look.
+ */
+export async function fetchDailyHoroscope(sign: string, day?: 'previous' | 'next') {
+  const { data } = await client.get('/horoscope/daily', { params: { sign: sign.toLowerCase(), day } });
+  return data as DailyHoroscope;
+}
+
 /* -------------------------------------------------------------------------- */
 /* The directory                                                              */
 /* -------------------------------------------------------------------------- */

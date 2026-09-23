@@ -52,6 +52,7 @@ import { AddMoneyScreen } from './src/screens/AddMoneyScreen';
 import { AiAstrologyChatScreen } from './src/screens/AiAstrologyChatScreen';
 import { AstrologerDetailScreen } from './src/screens/AstrologerDetailScreen';
 import { AstrologyAnalysisScreen } from './src/screens/AstrologyAnalysisScreen';
+import { DailyHoroscopeScreen } from './src/screens/DailyHoroscopeScreen';
 import { AvailableAstrologersScreen } from './src/screens/AvailableAstrologersScreen';
 import { ConsultationHistoryScreen } from './src/screens/ConsultationHistoryScreen';
 import { EditProfileScreen, type ProfileChanges } from './src/screens/EditProfileScreen';
@@ -103,6 +104,7 @@ type Route =
   | 'kundli'
   | 'kundliResult'
   | 'astrologyAnalysis'
+  | 'dailyHoroscope'
   | 'aiChat'
   | 'wallet'
   | 'addMoney'
@@ -209,6 +211,8 @@ function App() {
    * screens fall back to their design fixtures rather than showing nothing.
    */
   const [profile, setProfile] = useState<any>();
+  /** The rashi Home resolved, carried into the full reading so it need not be looked up twice. */
+  const [horoscopeSign, setHoroscopeSign] = useState<string>();
   /** Amount carried through the wallet top-up flow. */
   const [topUp, setTopUp] = useState(200);
   /** The pending row `startTopUp` opened — what `confirmTopUp` settles. */
@@ -1027,14 +1031,10 @@ function App() {
           }}
           onViewAllConsultations={() => push('pushedConsultations', 'home')}
           onSelectConsultation={() => push('pushedConsultations', 'home')}
-          onOpenHoroscope={() =>
-            comeBackLater(
-              'home',
-              'Daily Horoscope',
-              'The full reading for your sign gets its own screen soon. The highlights are on the home card meanwhile.',
-              '🔮',
-            )
-          }
+          onOpenHoroscope={sign => {
+            setHoroscopeSign(sign);
+            setRoute('dailyHoroscope');
+          }}
           onQuickAction={action => {
             if (action.id === 'generate-kundli') {
               setRoute('kundli');
@@ -1128,6 +1128,16 @@ function App() {
             })
           }
           onCall={() => startCall('astrologerDetail', astrologer?.name)}
+        />
+      )}
+
+      {route === 'dailyHoroscope' && (
+        <DailyHoroscopeScreen
+          /** The rashi Home already worked out from their birth details. */
+          sign={horoscopeSign}
+          onBack={() => setRoute('home')}
+          activeTab="home"
+          onSelectTab={selectTab}
         />
       )}
 
