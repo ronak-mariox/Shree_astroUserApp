@@ -77,6 +77,13 @@ type AstrologerDetailScreenProps = {
   /** Whoever was tapped in the list; omitted, the pinned profile is shown. */
   astrologer?: AstrologerSummary;
   onBack?: () => void;
+  /**
+   * The kebab in the header. Left out, it opens this screen's own Share /
+   * Report sheet (MORE_OPTIONS below). Supplied, it takes over instead — so a
+   * caller that would rather send the seeker somewhere of its own can, without
+   * this screen having to know where that is.
+   */
+  onMoreOptions?: () => void;
   onFollow?: () => void;
   onChat?: () => void;
   onCall?: () => void;
@@ -92,6 +99,7 @@ type AstrologerDetailScreenProps = {
 export function AstrologerDetailScreen({
   astrologer,
   onBack,
+  onMoreOptions,
   onFollow,
   onChat,
   onCall,
@@ -252,7 +260,7 @@ export function AstrologerDetailScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="More options"
-            onPress={() => setMenu('options')}
+            onPress={() => (onMoreOptions ? onMoreOptions() : setMenu('options'))}
             style={({ pressed }) => [styles.kebab, pressed && styles.pressed]}
           >
             <KebabIcon size={px(5.26353)} />

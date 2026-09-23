@@ -159,6 +159,22 @@ describe('the header\'s More Options', () => {
     expect(textOf(tree)).not.toContain('Coming Soon');
   });
 
+  test('a caller can take the kebab over, and then nothing opens in place', async () => {
+    const onMoreOptions = jest.fn();
+    const tree = await render(
+      <AstrologerDetailScreen
+        astrologer={{ id: 'a-rajesh', name: 'Pt. Rajesh Sharma' } as never}
+        onMoreOptions={onMoreOptions}
+      />,
+    );
+
+    await openMenu(tree);
+
+    expect(onMoreOptions).toHaveBeenCalledTimes(1);
+    /** Its own sheet stays shut — the caller decided what happens instead. */
+    expect(tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)).toHaveLength(0);
+  });
+
   test('Share Profile hands the profile to the phone', async () => {
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
     const tree = await render(detailScreen());
