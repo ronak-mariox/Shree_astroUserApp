@@ -57,7 +57,8 @@ type HomeScreenProps = {
   onAddFunds?: () => void;
   onQuickAction?: (action: QuickAction) => void;
   /** Today's reading, tapped from the card under the header. */
-  onOpenHoroscope?: () => void;
+  /** Handed the rashi this screen already resolved, so the reading opens without asking for it again. */
+  onOpenHoroscope?: (sign?: string) => void;
   /** One past session in the Recent Consultations feed. */
   onSelectConsultation?: (consultation: Consultation) => void;
   /** Opens the tapped astrologer's profile — the card, or either of its actions. */
@@ -233,7 +234,10 @@ export function HomeScreen({
         </View>
 
         <View style={styles.body}>
-          <DailyHoroscopeCard horoscope={home.data?.horoscope} onPress={onOpenHoroscope} />
+          <DailyHoroscopeCard
+            horoscope={home.data?.horoscope}
+            onPress={() => onOpenHoroscope?.(home.data?.horoscope?.sign)}
+          />
 
           <View style={styles.section}>
             <SectionHeader title="Quick Actions" />

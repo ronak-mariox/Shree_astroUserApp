@@ -120,6 +120,25 @@ export const fetchAstrologer = async (id: string) => ({
   callMinutes: 2000,
 });
 
+/** GET /horoscope/daily — the whole reading the Home card is cut down from. */
+export const fetchDailyHoroscope = jest.fn(async (sign: string, day?: 'previous' | 'next') => ({
+  sign: sign.charAt(0).toUpperCase() + sign.slice(1),
+  date: day === 'next' ? '2026-09-24' : day === 'previous' ? '2026-09-22' : '2026-09-23',
+  summary: 'A steady day that rewards patience.',
+  sections: {
+    personal_life: 'Family matters settle down this evening.',
+    profession: 'A senior notices work you did quietly.',
+    health: 'Drink more water than usual.',
+    emotions: 'You feel lighter than yesterday.',
+    /** Left empty on purpose — the screen must not draw a blank card for it. */
+    travel: '',
+    luck: 'Afternoon favours paperwork.',
+  },
+  lucky_number: 7,
+  lucky_color: 'Gold',
+  energy: 'High',
+}));
+
 export const toggleFavourite = async () => true;
 export const fetchFavourites = async () => [];
 

@@ -39,6 +39,8 @@ export function SegmentedTabs<T extends string>({
           <Pressable
             key={segment.key}
             accessibilityRole="tab"
+            /** Named, so a screen reader announces the tab rather than only its inner text. */
+            accessibilityLabel={segment.label}
             accessibilityState={{ selected }}
             onPress={() => onSelect(segment.key)}
             style={[
