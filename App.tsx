@@ -18,6 +18,7 @@ import {
   confirmTopUp,
   connectLiveUpdates,
   createBirthProfile,
+  fetchCurrentKundli,
   disconnectLiveUpdates,
   fetchProfile,
   getChatState,
@@ -30,6 +31,7 @@ import {
   type Intake,
 } from './src/services/api';
 import { toPackageBooking, type PackageQuote } from './src/data/consultPackages';
+import { busyForLabel } from './src/data/availability';
 import { ApiError } from './src/services/client';
 import { paymentMethods, type PaymentMethodId } from './src/data/wallet';
 import {
@@ -225,6 +227,14 @@ function App() {
    * POST /birth-profiles once per birth per device; every screen after that
    * reads from GET /kundli/:profileId..., which is cache-backed and free.
    */
+  /**
+   * The generated kundli for the seeker's CURRENT birth details. Restored
+   * from the device for a fast first paint, then confirmed against the server
+   * (GET /kundli/me) whenever the Kundli tab opens or the profile changes —
+   * so editing the date, time or place of birth stops pointing at the old
+   * chart and the tab offers to generate the new one, while details left
+   * alone keep resolving to the same stored chart.
+   */
   const [kundliProfileId, setKundliProfileId] = useState<string>();
   /** Birth Details is reached from sign-up and from the Kundli tab; each Back goes to a different place. */
   const [birthDetailsOrigin, setBirthDetailsOrigin] = useState<Route>('profileCreation');
@@ -269,7 +279,10 @@ function App() {
     id: string;
     name: string;
     photo?: AstrologerSummary['photo'];
+    /** "Wait ~7 min" — set only while they're in another consultation. */
     wait?: string;
+    /** The estimate behind `wait`, in seconds, for the busy sheet's own sentence. */
+    waitSeconds?: number;
   }>();
   const [chatOrigin, setChatOrigin] = useState<Route>('availableAstrologers');
   const [busyShown, setBusyShown] = useState(false);
@@ -580,8 +593,36 @@ function App() {
     });
     setKundliProfileId(created.id);
     await saveKundliProfileId(created.id);
+    /** The generated chart's own details are now what the account has on file. */
+    fetchProfile().then(setProfile).catch(() => {});
     setRoute('kundliResult');
   };
+
+  /**
+   * Confirms which chart belongs to the birth details on file. A changed
+   * detail means no stored chart matches, so the tab shows "Generate Kundli"
+   * again; generating then casts a new one and caches it server-side.
+   */
+  const refreshCurrentKundli = async () => {
+    try {
+      const current = await fetchCurrentKundli();
+      if (current.found) {
+        setKundliProfileId(current.profileId);
+        await saveKundliProfileId(current.profileId);
+      } else {
+        setKundliProfileId(undefined);
+        await clearKundliProfileId();
+      }
+    } catch {
+      /** Offline or a hiccup — leave whatever was restored from the device; opening the chart would fail loudly anyway. */
+    }
+  };
+
+  useEffect(() => {
+    if (session && (route === 'kundli' || route === 'home')) {
+      refreshCurrentKundli();
+    }
+  }, [route, session, profile?.birthDetails?.dateOfBirth, profile?.birthDetails?.timeOfBirth, profile?.birthDetails?.place?.formatted]);
 
   /** Screens reachable from more than one place go back where they came from. */
   const push = (next: Route, from: Route) => {
@@ -629,7 +670,10 @@ function App() {
       id: string;
       name: string;
       photo?: AstrologerSummary['photo'];
+      /** "Wait ~7 min" — set only while they're in another consultation. */
       wait?: string;
+      /** The estimate behind `wait`, in seconds, for the busy sheet's sentence. */
+      waitSeconds?: number;
     },
   ) => {
     setChatWith(target);
@@ -1002,6 +1046,8 @@ function App() {
               id: picked.id,
               name: picked.name,
               photo: picked.photo,
+              wait: picked.wait,
+              waitSeconds: picked.waitSeconds,
             })
           }
           onCall={picked => startCall('findAstrologers', picked.name)}
@@ -1036,6 +1082,7 @@ function App() {
                   name: picked.name,
                   photo: picked.photo,
                   wait: picked.wait,
+                  waitSeconds: picked.waitSeconds,
                 })
               : startCall('availableAstrologers', picked.name)
           }
@@ -1052,6 +1099,7 @@ function App() {
               name: astrologer?.name ?? 'your astrologer',
               photo: astrologer?.photo,
               wait: astrologer?.wait,
+              waitSeconds: astrologer?.waitSeconds,
             })
           }
           onCall={() => startCall('astrologerDetail', astrologer?.name)}
@@ -1294,6 +1342,7 @@ function App() {
       <AstrologerBusyDialog
         visible={busyShown}
         name={chatWith?.name ?? 'This astrologer'}
+        busyFor={busyForLabel({ busy: true, waitSeconds: chatWith?.waitSeconds })}
         onWait={() => {
           setBusyShown(false);
           setRoute('chatIntake');

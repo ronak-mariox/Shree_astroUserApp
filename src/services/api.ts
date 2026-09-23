@@ -360,6 +360,23 @@ export async function updateNotificationPrefs(prefs: Record<string, boolean>) {
 
 /* ----------------------------------------------------------------- kundlis */
 
+/**
+ * Is there already a generated kundli for the signed-in seeker's CURRENT
+ * birth details? (GET /kundli/me.)
+ *
+ * The Kundli tab asks this rather than trusting an id it remembered: change
+ * the date, time or place of birth and no stored chart matches any more, so
+ * a new one is cast (and cached) on the next Generate. Details left alone
+ * always resolve to the same chart, read from the database.
+ */
+export async function fetchCurrentKundli() {
+  if (USE_DUMMY_KUNDLI) return { found: false as const, reason: 'not_generated' };
+  const { data } = await client.get('/kundli/me');
+  return data as
+    | { found: true; profileId: string; status: string }
+    | { found: false; reason: 'birth_details_missing' | 'not_generated' };
+}
+
 export async function fetchKundlis() {
   if (USE_DUMMY_DATA) return DUMMY_KUNDLIS;
   const { data } = await client.get('/users/me/kundlis');
