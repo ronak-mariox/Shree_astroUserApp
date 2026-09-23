@@ -1796,17 +1796,19 @@ test('available astrologers renders and filters by category', async () => {
   expect(text).toContain('₹25/min');
   expect(text).not.toContain('Free');
 
-  // Education narrows to the one astrologer tagged with it.
-  const tabs = tree.root.findAll(
-    n =>
-      typeof n.type !== 'string' &&
-      n.props.accessibilityRole === 'tab' &&
-      typeof n.props.onPress === 'function',
-  );
-  // 0,1 are the Chat/Call modes; 2.. are the category chips
-  // (all, love, education, marriage, wealth, health).
+  // A category narrows the list. Picked by name, not by position — the
+  // Chat/Call switch now sits at the bottom of the screen, and the chips are
+  // not the only tabs on it.
+  const tabNamed = (label: string) =>
+    tree.root.findAll(
+      n =>
+        typeof n.type !== 'string' &&
+        n.props.accessibilityRole === 'tab' &&
+        n.props.accessibilityLabel === label &&
+        typeof n.props.onPress === 'function',
+    )[0];
   await ReactTestRenderer.act(() => {
-    tabs[7].props.onPress(); // Health — matches only the third astrologer.
+    tabNamed('Health astrologers').props.onPress(); // Matches only the third astrologer.
   });
   text = textOf(tree);
   expect(text).toContain('₹15/min');
@@ -1816,24 +1818,24 @@ test('available astrologers renders and filters by category', async () => {
 
 test('the Chat / Call mode toggle switches', async () => {
   const tree = await render(<AvailableAstrologersScreen />);
-  const modes = () =>
+  /** By name: the switch sits at the bottom now, among other tabs (the category chips). */
+  const mode = (label: string) =>
     tree.root.findAll(
-      n => typeof n.type === 'string' && n.props.accessibilityRole === 'tab',
-    );
-  expect(modes()[0].props.accessibilityState.selected).toBe(true);
-  expect(modes()[1].props.accessibilityState.selected).toBe(false);
+      n =>
+        typeof n.type !== 'string' &&
+        n.props.accessibilityRole === 'tab' &&
+        n.props.accessibilityLabel === label &&
+        typeof n.props.onPress === 'function',
+    )[0];
 
-  const callMode = tree.root.findAll(
-    n =>
-      typeof n.type !== 'string' &&
-      n.props.accessibilityRole === 'tab' &&
-      typeof n.props.onPress === 'function',
-  )[1];
+  expect(mode('Chat consultations').props.accessibilityState.selected).toBe(true);
+  expect(mode('Call consultations').props.accessibilityState.selected).toBe(false);
+
   await ReactTestRenderer.act(() => {
-    callMode.props.onPress();
+    mode('Call consultations').props.onPress();
   });
-  expect(modes()[1].props.accessibilityState.selected).toBe(true);
-  expect(modes()[0].props.accessibilityState.selected).toBe(false);
+  expect(mode('Call consultations').props.accessibilityState.selected).toBe(true);
+  expect(mode('Chat consultations').props.accessibilityState.selected).toBe(false);
 });
 
 /** The header's sliders button, which is what raises the Sort & Filter sheet. */

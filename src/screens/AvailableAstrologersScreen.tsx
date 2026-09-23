@@ -54,7 +54,7 @@ import {
   sortConsultAstrologers,
   type ConsultFilterSelection,
 } from '../data/consultFilters';
-import { colors, fontFamily, radius } from '../theme';
+import { colors, fontFamily, hairline, radius } from '../theme';
 
 /**
  * Figma drew this screen on a 402 x 1086 frame (node 180:90120) whose status
@@ -300,46 +300,8 @@ export function AvailableAstrologersScreen({
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 20 * scale + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: 20 * scale }}
       >
-        <View style={styles.modes}>
-          {(['chat', 'call'] as const).map(option => {
-            const selected = option === mode;
-            const label = option === 'chat' ? 'Chat' : 'Call';
-            const tint = selected
-              ? colors.text.inverse
-              : consultPalette.callAccent;
-
-            return (
-              <Pressable
-                key={option}
-                accessibilityRole="tab"
-                accessibilityState={{ selected }}
-                accessibilityLabel={`${label} consultations`}
-                onPress={() => setMode(option)}
-                style={({ pressed }) => [
-                  styles.mode,
-                  selected ? styles.modeOn : styles.modeOff,
-                  pressed && styles.dimmed,
-                ]}
-              >
-                {option === 'chat' ? (
-                  <ToggleChatIcon
-                    size={ICON.toggleChat * scale}
-                    color={tint}
-                  />
-                ) : (
-                  <ToggleCallIcon
-                    size={ICON.toggleCall * scale}
-                    color={tint}
-                  />
-                )}
-                <Label style={[styles.modeLabel, { color: tint }]}>{label}</Label>
-              </Pressable>
-            );
-          })}
-        </View>
-
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -354,6 +316,8 @@ export function AvailableAstrologersScreen({
                 key={option.key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
+                /** Named, so a screen reader (and a test) can tell the categories apart. */
+                accessibilityLabel={`${option.label} astrologers`}
                 onPress={() => setCategory(option.key)}
                 style={[
                   styles.chip,
@@ -425,6 +389,43 @@ export function AvailableAstrologersScreen({
           )}
         </View>
       </ScrollView>
+
+      {/*
+       * Chat / Call sits at the BOTTOM, right above the tab bar: it is the
+       * choice every card's action follows, and a thumb reaches it there
+       * without having to scroll back to the top of the list.
+       */}
+      <View style={styles.modeBar}>
+        <View style={styles.modes}>
+          {(['chat', 'call'] as const).map(option => {
+            const selected = option === mode;
+            const label = option === 'chat' ? 'Chat' : 'Call';
+            const tint = selected ? colors.text.inverse : consultPalette.callAccent;
+
+            return (
+              <Pressable
+                key={option}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`${label} consultations`}
+                onPress={() => setMode(option)}
+                style={({ pressed }) => [
+                  styles.mode,
+                  selected ? styles.modeOn : styles.modeOff,
+                  pressed && styles.dimmed,
+                ]}
+              >
+                {option === 'chat' ? (
+                  <ToggleChatIcon size={ICON.toggleChat * scale} color={tint} />
+                ) : (
+                  <ToggleCallIcon size={ICON.toggleCall * scale} color={tint} />
+                )}
+                <Label style={[styles.modeLabel, { color: tint }]}>{label}</Label>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
 
       <BottomTabBar active={activeTab} onSelect={onSelectTab} />
 
@@ -642,12 +643,18 @@ function createStyles(scale: number) {
       marginRight: px(-5),
     },
 
+    /** The bar the toggle sits in, pinned above the tab bar. */
+    modeBar: {
+      paddingHorizontal: px(16),
+      paddingTop: px(10),
+      paddingBottom: px(10),
+      borderTopWidth: hairline,
+      borderTopColor: consultPalette.callBorder,
+      backgroundColor: colors.surface,
+    },
     modes: {
       flexDirection: 'row',
       gap: px(20),
-      paddingHorizontal: px(16),
-      // 120.119 down the frame, with the header ending at 105.
-      paddingTop: px(15.118),
     },
     mode: {
       flex: 1,
@@ -684,8 +691,8 @@ function createStyles(scale: number) {
       alignItems: 'center',
       gap: px(7.446),
       paddingHorizontal: px(16),
-      // 183.119 down the frame, with the toggles ending at 168.119.
-      paddingTop: px(15),
+      /** First row under the header now that Chat/Call has moved to the bottom bar. */
+      paddingTop: px(15.118),
     },
     /** Width comes from the category, so the row measures Figma's 373.2. */
     chip: {

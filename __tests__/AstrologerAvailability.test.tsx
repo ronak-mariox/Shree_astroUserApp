@@ -120,6 +120,71 @@ describe('the consult list', () => {
   });
 });
 
+describe('the consult tab\'s Chat / Call switch', () => {
+  /** The screen's own top-level children, in the order they are laid out (inside the safe-area provider this test renders it in). */
+  const layoutChildren = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    const json: any = tree.toJSON();
+    const provider = Array.isArray(json) ? json[0] : json;
+    const screen = provider?.children?.[0] ?? provider;
+    return (screen.children ?? []) as any[];
+  };
+  const textOfNode = (node: any): string => {
+    if (node === null || node === undefined) return '';
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) return node.map(textOfNode).join('');
+    if (typeof node === 'object') return textOfNode(node.children);
+    return '';
+  };
+
+  test('sits at the bottom: after the list, just above the tab bar', async () => {
+    jest.spyOn(api, 'fetchAstrologers').mockImplementation(async () => directory() as never);
+    const tree = await render(<AvailableAstrologersScreen activeTab="consult" />);
+
+    const children = layoutChildren(tree);
+    const indexOf = (match: (node: any) => boolean) => children.findIndex(match);
+
+    const listIndex = indexOf(node => textOfNode(node).includes('Pt. Rajesh Sharma'));
+    const switchIndex = indexOf(
+      node => node !== children[listIndex] && /Chat/.test(textOfNode(node)) && /Call/.test(textOfNode(node)),
+    );
+    const tabBarIndex = indexOf(node => /Kundli/.test(textOfNode(node)) && /Wallet/.test(textOfNode(node)));
+
+    expect(listIndex).toBeGreaterThanOrEqual(0);
+    expect(switchIndex).toBeGreaterThan(listIndex);
+    expect(tabBarIndex).toBeGreaterThan(switchIndex);
+
+    /** And it no longer scrolls away with the list. */
+    const inScrollView = (node: any): boolean => {
+      if (!node || typeof node !== 'object') return false;
+      if (String(node.type).includes('ScrollView')) {
+        return /Chat consultations/.test(JSON.stringify(node.props?.children ?? '')) || textOfNode(node).includes('Chat');
+      }
+      return (node.children ?? []).some(inScrollView);
+    };
+    expect(inScrollView(children[switchIndex])).toBe(false);
+  });
+
+  test('both options are still there and selectable, with Chat the default', async () => {
+    jest.spyOn(api, 'fetchAstrologers').mockImplementation(async () => directory() as never);
+    const tree = await render(<AvailableAstrologersScreen />);
+    const tab = (label: string) =>
+      tree.root.findAll(
+        n => typeof n.type !== 'string' && n.props.accessibilityRole === 'tab' && n.props.accessibilityLabel === label,
+      )[0];
+
+    expect(tab('Chat consultations').props.accessibilityState.selected).toBe(true);
+    expect(tab('Call consultations').props.accessibilityState.selected).toBe(false);
+
+    await ReactTestRenderer.act(() => {
+      tab('Call consultations').props.onPress();
+    });
+    expect(tab('Call consultations').props.accessibilityState.selected).toBe(true);
+    // Each card's action follows the switch.
+    const cardAction = tree.root.findAll(n => n.props.accessibilityLabel === 'Call with Pt. Rajesh Sharma');
+    expect(cardAction.length).toBeGreaterThan(0);
+  });
+});
+
 describe('find astrologers', () => {
   test('busy consultants carry the estimate there too', async () => {
     jest.spyOn(api, 'fetchAstrologers').mockImplementation(async () => directory() as never);
