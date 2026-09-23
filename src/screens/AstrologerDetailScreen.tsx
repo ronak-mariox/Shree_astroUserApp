@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   Image,
   Platform,
   Share,
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppDialog } from '../components/AppDialog';
 import { BrandGradient } from '../components/BrandGradient';
 import { MoreOptionsSheet, type MoreOption } from '../components/MoreOptionsSheet';
 import { ReportIcon, ShareIcon } from '../components/icons/MoreOptionsIcons';
@@ -34,6 +34,7 @@ import {
   type AstrologerSummary,
 } from '../data/astrologerProfile';
 import { useApi } from '../hooks/useApi';
+import { useDialog } from '../hooks/useDialog';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import { waitLabel } from '../data/availability';
@@ -194,6 +195,8 @@ export function AstrologerDetailScreen({
   const [following, setFollowing] = useState(false);
   /** Which of the header kebab's two sheets is open, if either. */
   const [menu, setMenu] = useState<'options' | 'report' | null>(null);
+  /** The messages this screen used to hand to `Alert.alert`. */
+  const dialog = useDialog();
   const [aboutExpanded, setAboutExpanded] = useState(false);
 
   /**
@@ -227,15 +230,17 @@ export function AstrologerDetailScreen({
         'astrologer',
         `${reason} — reported about ${profile.name}${who ? ` (astrologer ${who})` : ''}`,
       );
-      Alert.alert(
-        'Report sent',
-        'Thank you — our team will look into it. You will hear back on this once it has been reviewed.',
-      );
+      dialog.show({
+        title: 'Report sent',
+        tone: 'success',
+        message: 'Thank you — our team will look into it. You will hear back once it has been reviewed.',
+      });
     } catch (error) {
-      Alert.alert(
-        'Could not send the report',
-        error instanceof Error ? error.message : 'Please try again in a moment.',
-      );
+      dialog.show({
+        title: 'Could not send the report',
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Please try again in a moment.',
+      });
     }
   };
 
@@ -454,6 +459,8 @@ export function AstrologerDetailScreen({
           <Text style={styles.ctaLabel}>Call Now</Text>
         </Pressable>
       </View>
+
+      <AppDialog request={dialog.request} onDismiss={dialog.dismiss} />
 
       <MoreOptionsSheet
         visible={menu === 'options'}

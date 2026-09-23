@@ -8,6 +8,8 @@ export const colors = {
   canvas: '#FFFDF8',
   /** Hero / brand yellow. */
   brandYellow: '#F0DF20',
+  /** The brand yellow at a whisper — a well behind a glyph, where a full fill would shout. */
+  brandYellowTint: 'rgba(240, 223, 32, 0.18)',
   /** Cards and sheets. */
   surface: '#FFFFFF',
   /** Neutral tile behind a muted icon. */

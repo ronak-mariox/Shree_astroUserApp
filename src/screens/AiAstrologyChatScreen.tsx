@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,9 +14,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppDialog } from '../components/AppDialog';
 import { BackButton } from '../components/BackButton';
 import { ChatBubble, type ChatMessage } from '../components/ChatBubble';
 import { SendIcon } from '../components/icons/SendIcon';
+import { useDialog } from '../hooks/useDialog';
 import { assistant, openingMessages, suggestedPrompts } from '../data/chat';
 import { askAi, fetchAiThread } from '../services/api';
 import { ApiError } from '../services/client';
@@ -81,6 +82,8 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
   const [draft, setDraft] = useState('');
   const [inputHeight, setInputHeight] = useState(INPUT_MIN_HEIGHT);
   const [sending, setSending] = useState(false);
+  /** The messages this screen used to hand to `Alert.alert`. `show` is stable, so the load effect can depend on it. */
+  const { request: dialogRequest, show: showDialog, dismiss: dismissDialog } = useDialog();
 
   useEffect(() => {
     let live = true;
@@ -94,16 +97,17 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
       })
       .catch(error => {
         if (!live) return;
-        Alert.alert(
-          'Could not load your conversation',
-          error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-        );
+        showDialog({
+          title: 'Could not load your conversation',
+          tone: 'error',
+          message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+        });
       });
 
     return () => {
       live = false;
     };
-  }, []);
+  }, [showDialog]);
 
   const canSend = draft.trim().length > 0 && !sending;
 
@@ -126,10 +130,11 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
       const result = await askAi(body);
       setMessages(current => [...current, toChatMessage(result.answer)]);
     } catch (error) {
-      Alert.alert(
-        'Could not get a reply',
-        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      );
+      showDialog({
+        title: 'Could not get a reply',
+        tone: 'error',
+        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      });
     } finally {
       setSending(false);
       requestAnimationFrame(() => transcript.current?.scrollToEnd());
@@ -254,6 +259,7 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <AppDialog request={dialogRequest} onDismiss={dismissDialog} />
     </View>
   );
 }

@@ -10,10 +10,10 @@
  * ordinary wallet top-up still ends on Wallet / Home as before.
  */
 import React from 'react';
-import { Alert, type AlertButton } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
 import App from '../App';
+import { AppDialog } from '../src/components/AppDialog';
 import { OptionPickerDialog } from '../src/components/OptionPickerDialog';
 import { ChatIntakeScreen } from '../src/screens/ChatIntakeScreen';
 import * as api from '../src/services/api';
@@ -94,14 +94,16 @@ const pressText = async (tree: Tree, text: string) => {
   await flush();
 };
 
-/** The buttons of the last Alert.alert, pressable by their text. */
-let lastAlert: { title?: string | null; message?: string | null; buttons: AlertButton[] } | null = null;
-const pressAlertButton = async (text: string) => {
-  const button = lastAlert?.buttons.find(b => b.text === text);
-  if (!button) throw new Error(`No alert button "${text}" (alert: ${JSON.stringify(lastAlert)})`);
-  await ReactTestRenderer.act(async () => {
-    button.onPress?.();
-  });
+/**
+ * The app's own dialog, in place of the OS alert these flows used to raise —
+ * read and pressed the way a finger does, by what is on screen.
+ */
+const dialogText = (tree: Tree) => {
+  const sheet = tree.root.findAllByType(AppDialog)[0];
+  return sheet?.props.request ? `${sheet.props.request.title} ${sheet.props.request.message ?? ''}` : '';
+};
+const pressDialogButton = async (tree: Tree, label: string) => {
+  await pressLabel(tree, label);
 };
 
 const intake = (tree: Tree) => tree.root.findByType(ChatIntakeScreen);
@@ -109,10 +111,6 @@ const intake = (tree: Tree) => tree.root.findByType(ChatIntakeScreen);
 let tree: Tree;
 
 beforeEach(async () => {
-  lastAlert = null;
-  jest.spyOn(Alert, 'alert').mockImplementation((title, message, buttons) => {
-    lastAlert = { title, message, buttons: buttons ?? [] };
-  });
   await saveSession({
     accessToken: 'test-access',
     refreshToken: 'test-refresh',
@@ -164,14 +162,14 @@ async function reachIntakeAndBePoor() {
     }),
   );
   await pressLabel(tree, /^Connect With /);
-  expect(lastAlert?.title).toBe('Insufficient Balance');
-  expect(lastAlert?.message).toContain('You need ₹40 more');
+  expect(dialogText(tree)).toContain('Insufficient Balance');
+  expect(dialogText(tree)).toContain('You need ₹40 more');
 }
 
 test('recharging from the intake form comes back to the same form, answers and package intact', async () => {
   await reachIntakeAndBePoor();
 
-  await pressAlertButton('Recharge Wallet');
+  await pressDialogButton(tree, 'Recharge Wallet');
   await flush();
   // Add Money, pre-filled with exactly what was missing.
   expect(textOf(tree)).toContain('Proceed to Pay ₹40');
@@ -212,7 +210,7 @@ test('recharging from the intake form comes back to the same form, answers and p
 
 test('backing out of Add Money from the chat flow returns to the form, not the wallet', async () => {
   await reachIntakeAndBePoor();
-  await pressAlertButton('Recharge Wallet');
+  await pressDialogButton(tree, 'Recharge Wallet');
   await flush();
   expect(textOf(tree)).toContain('Proceed to Pay ₹40');
 
