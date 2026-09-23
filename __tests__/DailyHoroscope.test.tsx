@@ -4,8 +4,9 @@
  * The card shows three highlights and a trimmed paragraph; tapping it used to
  * open a "Coming Soon" screen. It now opens the whole of what the same provider
  * request already returns — the day in one line, those highlights, and the six
- * areas it writes about — with yesterday and tomorrow a tap away, since the
- * endpoint takes a day and caches per sign per day.
+ * areas it writes about. Today's only: the provider writes one reading a day per
+ * sign, the backend keeps it in Mongo (models/HoroscopeCache, unique on sign +
+ * period + date), and there is nothing to page through.
  */
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
@@ -90,7 +91,7 @@ test('the Home card hands the reading the rashi it already worked out', async ()
 test('the reading shows the whole of what the card is cut down from', async () => {
   const tree = await render(<DailyHoroscopeScreen sign="Leo" />);
 
-  expect(api.fetchDailyHoroscope).toHaveBeenCalledWith('Leo', undefined);
+  expect(api.fetchDailyHoroscope).toHaveBeenCalledWith('Leo');
 
   const text = textOf(tree);
   /** The day in one line, and the three highlights the card shows. */
@@ -112,20 +113,21 @@ test('the reading shows the whole of what the card is cut down from', async () =
   expect(text).not.toContain('Journeys and movement');
 });
 
-test('yesterday and tomorrow are one tap away', async () => {
+test('today only — no other day is offered, and none is asked for', async () => {
   const tree = await render(<DailyHoroscopeScreen sign="Leo" />);
 
-  await pressLabel(tree, 'Tomorrow');
-  expect(api.fetchDailyHoroscope).toHaveBeenLastCalledWith('Leo', 'next');
   /** Loose on the month's short form — ICU says "Sep" on some platforms and "Sept" on others. */
-  expect(textOf(tree)).toMatch(/24 Sept? 2026/);
+  expect(textOf(tree)).toMatch(/23 Sept? 2026/);
+  expect(textOf(tree)).toContain('one new reading a day');
 
-  await pressLabel(tree, 'Yesterday');
-  expect(api.fetchDailyHoroscope).toHaveBeenLastCalledWith('Leo', 'previous');
-  expect(textOf(tree)).toMatch(/22 Sept? 2026/);
+  for (const other of ['Yesterday', 'Tomorrow']) {
+    expect(tree.root.findAll(n => n.props.accessibilityLabel === other)).toHaveLength(0);
+    expect(textOf(tree)).not.toContain(other);
+  }
 
-  await pressLabel(tree, 'Today');
-  expect(api.fetchDailyHoroscope).toHaveBeenLastCalledWith('Leo', undefined);
+  /** One request, for today, with no day argument behind it. */
+  expect(api.fetchDailyHoroscope).toHaveBeenCalledTimes(1);
+  expect((api.fetchDailyHoroscope as jest.Mock).mock.calls[0]).toEqual(['Leo']);
 });
 
 test('with no rashi yet it says why, and asks for nothing from the server', async () => {
@@ -135,8 +137,6 @@ test('with no rashi yet it says why, and asks for nothing from the server', asyn
   const text = textOf(tree);
   expect(text).toContain('Your rashi is on its way');
   expect(text).toContain('birth details');
-  /** No day switcher either — there is nothing to page through. */
-  expect(tree.root.findAll(n => n.props.accessibilityLabel === 'Tomorrow')).toHaveLength(0);
 });
 
 test('a reading that fails to load says so, and offers another go', async () => {
