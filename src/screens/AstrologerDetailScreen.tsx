@@ -32,6 +32,7 @@ import {
 import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
+import { waitLabel } from '../data/availability';
 import { portraitOf } from '../utils/images';
 import {
   colors,
@@ -119,10 +120,8 @@ export function AstrologerDetailScreen({
     return {
       name: row?.name ?? astrologer?.name ?? '',
       online: row?.online ?? astrologer?.online ?? false,
-      waitTime:
-        row?.busy && row?.waitSeconds
-          ? `Wait ${Math.ceil(row.waitSeconds / 60)} Min`
-          : astrologer?.wait ?? '',
+      waitTime: waitLabel({ busy: row?.busy, waitSeconds: row?.waitSeconds }, 'Min') ?? astrologer?.wait ?? '',
+      waitSeconds: row?.busy ? row?.waitSeconds : 0,
       languages: row ? api.joinLabels(row.languages) : astrologer?.languages ?? '',
       photo: portraitOf(row?.photo) ?? astrologer?.photo,
       tags,

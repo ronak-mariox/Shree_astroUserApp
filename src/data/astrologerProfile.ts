@@ -69,4 +69,6 @@ export type AstrologerSummary = {
   rates?: { was: string; now: string };
   specialities?: string;
   wait?: string;
+  /** The backend's estimated wait behind `wait`, in seconds (GET /astrologers' waitSeconds). */
+  waitSeconds?: number;
 };

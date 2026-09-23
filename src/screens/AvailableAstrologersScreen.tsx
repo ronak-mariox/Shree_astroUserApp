@@ -19,6 +19,7 @@ import { useApi } from '../hooks/useApi';
 import * as api from '../services/api';
 import { portraitOf } from '../utils/images';
 import { ConsultFilterSheet } from '../components/ConsultFilterSheet';
+import { waitLabel } from '../data/availability';
 import { ArrowLeftIcon } from '../components/icons/ArrowLeftIcon';
 import {
   ChatMarkBody,
@@ -221,7 +222,8 @@ export function AvailableAstrologersScreen({
       experience: row.experienceYears ? `${row.experienceYears} Yrs` : '—',
       orders: row.consultations.toLocaleString('en-IN'),
       /** A busy astrologer shows a countdown where the button would be. */
-      wait: row.busy && row.waitSeconds ? `Wait ${Math.ceil(row.waitSeconds / 60)} min` : undefined,
+      wait: waitLabel(row),
+      waitSeconds: row.busy ? row.waitSeconds : 0,
       /** A struck-through "was" ₹10 above the real rate — cosmetic, not the backend's own (usually equal) was/now pair, which never shows a discount today. */
       was: service ? `₹${service.now + 10}/min` : '',
       /** No astrologer is ever marked "Free" here — the real rate always shows, whatever free minutes they carry. */

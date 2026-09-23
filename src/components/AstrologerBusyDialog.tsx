@@ -32,6 +32,8 @@ type AstrologerBusyDialogProps = {
   visible: boolean;
   /** Who the user tried to reach. */
   name: string;
+  /** "busy for about 7 min" — the backend's estimate, when there is one. */
+  busyFor?: string;
   /** Keeps them in the queue for this astrologer. */
   onWait: () => void;
   /** Sends them back to the list to pick someone free. */
@@ -69,7 +71,8 @@ export function DeclineChatDialog({
   onDismiss,
 }: DeclineChatDialogProps) {
   const insets = useSafeAreaInsets();
-  const { styles, closeIconSize } = useSheetStyles();
+  /** No close X on this one — its scrim is the way out. */
+  const { styles } = useSheetStyles();
 
   return (
     <Modal
@@ -137,6 +140,7 @@ export function DeclineChatDialog({
 export function AstrologerBusyDialog({
   visible,
   name,
+  busyFor,
   onWait,
   onChooseOthers,
   onDismiss,
@@ -175,10 +179,13 @@ export function AstrologerBusyDialog({
 
           <Text style={styles.body}>
             <Text style={styles.bodyName}>{name} </Text>
-            is busy with other customer.{'\n'}
+            is {busyFor ?? 'busy'} with other customer.{'\n'}
             Do you want to wait or Chat with{'\n'}
             other expert Astrologer?
           </Text>
+          {busyFor !== undefined && (
+            <Text style={styles.estimate}>Estimated — it may free up sooner or later.</Text>
+          )}
 
           <View style={styles.actions}>
             <Pressable
@@ -348,6 +355,13 @@ function createStyles(px: (value: number) => number, isTablet: boolean) {
     color: colors.text.onYellow,
     textAlign: 'center',
     paddingTop: spacing.lg,
+  },
+  /** The small print under an estimated wait — it is a guess, not a promise. */
+  estimate: {
+    ...typography.caption,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    paddingTop: spacing.xs,
   },
   bodyName: {
     ...typography.dialogBodyStrong,
