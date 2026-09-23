@@ -13,6 +13,7 @@ export const {
   joinLabels,
   rupees,
   minutesOf,
+  minutesLabel,
   shortDate,
   dateTime,
   timeAgo,
