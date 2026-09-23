@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   BackHandler,
   Image,
   KeyboardAvoidingView,
@@ -17,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from '../components/BrandGradient';
+import { AppDialog } from '../components/AppDialog';
 import { EndChatDialog } from '../components/AstrologerBusyDialog';
 import { ChatEndedDialog } from '../components/ChatEndedDialog';
 import { ContinueConsultationSheet } from '../components/ContinueConsultationSheet';
@@ -43,6 +43,7 @@ import {
   type PackageView,
 } from '../data/consultPackages';
 import { useApi } from '../hooks/useApi';
+import { useDialog } from '../hooks/useDialog';
 import {
   confirmTopUp,
   continueConsultation,
@@ -164,6 +165,8 @@ export function ConsultationChatScreen({
   const [draft, setDraft] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [endChatVisible, setEndChatVisible] = useState(false);
+  /** The messages this screen used to hand to `Alert.alert`. */
+  const dialog = useDialog();
   const [chatEndedVisible, setChatEndedVisible] = useState(false);
   /** Shown once the live tick warns the balance won't cover much more — cleared the moment a normal tick bills fine again. */
   const [lowBalanceVisible, setLowBalanceVisible] = useState(false);
@@ -518,10 +521,14 @@ export function ConsultationChatScreen({
       } else if (error instanceof ApiError && (error.code === 'price_changed' || error.code === 'not_awaiting_choice')) {
         state.reload();
         if (error.code === 'price_changed') {
-          Alert.alert('Price updated', error.message);
+          dialog.show({ title: 'Price updated', tone: 'info', message: error.message });
         }
       } else {
-        Alert.alert('Could not continue', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+        dialog.show({
+          title: 'Could not continue',
+          tone: 'error',
+          message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+        });
       }
     } finally {
       setContinuing(false);
@@ -545,10 +552,11 @@ export function ConsultationChatScreen({
     try {
       await sendMessage(chatId, body, clientMessageId);
     } catch (error) {
-      Alert.alert(
-        'Message not sent',
-        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      );
+      dialog.show({
+        title: 'Message not sent',
+        tone: 'error',
+        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      });
     }
   };
 
@@ -589,10 +597,11 @@ export function ConsultationChatScreen({
       setClosed(true);
       setChatEndedVisible(true);
     } catch (error) {
-      Alert.alert(
-        'Could not end chat',
-        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      );
+      dialog.show({
+        title: 'Could not end chat',
+        tone: 'error',
+        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      });
     }
   };
 
@@ -619,10 +628,11 @@ export function ConsultationChatScreen({
         state.reload();
       }
     } catch (error) {
-      Alert.alert(
-        'Could not add money',
-        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      );
+      dialog.show({
+        title: 'Could not add money',
+        tone: 'error',
+        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      });
     } finally {
       setPayingRecharge(false);
     }
@@ -698,6 +708,8 @@ export function ConsultationChatScreen({
           onRecharge={() => setRechargeVisible(true)}
         />
       )}
+
+      <AppDialog request={dialog.request} onDismiss={dialog.dismiss} />
 
       <EndChatDialog
         visible={endChatVisible}

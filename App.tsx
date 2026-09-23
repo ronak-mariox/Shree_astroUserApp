@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type { TabKey } from './src/components/BottomTabBar';
@@ -53,6 +53,8 @@ import { AiAstrologyChatScreen } from './src/screens/AiAstrologyChatScreen';
 import { AstrologerDetailScreen } from './src/screens/AstrologerDetailScreen';
 import { AstrologyAnalysisScreen } from './src/screens/AstrologyAnalysisScreen';
 import { DailyHoroscopeScreen } from './src/screens/DailyHoroscopeScreen';
+import { AppDialog } from './src/components/AppDialog';
+import { useDialog } from './src/hooks/useDialog';
 import { AvailableAstrologersScreen } from './src/screens/AvailableAstrologersScreen';
 import { ConsultationHistoryScreen } from './src/screens/ConsultationHistoryScreen';
 import { EditProfileScreen, type ProfileChanges } from './src/screens/EditProfileScreen';
@@ -213,6 +215,12 @@ function App() {
   const [profile, setProfile] = useState<any>();
   /** The rashi Home resolved, carried into the full reading so it need not be looked up twice. */
   const [horoscopeSign, setHoroscopeSign] = useState<string>();
+  /**
+   * Every message this file used to hand to `Alert.alert`, in the app's own
+   * dialog. Destructured because `show` never changes, so an effect that raises
+   * a message can depend on it without restarting on every open and close.
+   */
+  const { request: dialogRequest, show: showDialog, dismiss: dismissDialog } = useDialog();
   /** Amount carried through the wallet top-up flow. */
   const [topUp, setTopUp] = useState(200);
   /** The pending row `startTopUp` opened — what `confirmTopUp` settles. */
@@ -519,10 +527,11 @@ function App() {
       setTopUp(amount);
       setRoute('payment');
     } catch (error) {
-      Alert.alert(
-        'Could not start top-up',
-        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      );
+      showDialog({
+        title: 'Could not start top-up',
+        tone: 'error',
+        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      });
     }
   };
 
@@ -558,7 +567,7 @@ function App() {
 
   /** A confirmTopUp failure — the interstitial's beat already ran; explain and go back. */
   const failTopUp = (message: string) => {
-    Alert.alert('Payment failed', message);
+    showDialog({ title: 'Payment failed', tone: 'error', message });
     setRoute('payment');
   };
 
@@ -720,14 +729,15 @@ function App() {
       }
       if (!check.ok) {
         const minuteWord = check.minSessionMinutes === 1 ? 'minute' : 'minutes';
-        Alert.alert(
-          'Insufficient Balance',
-          `You need at least ${rupees(check.shortfallAmount)} more in your wallet to start this chat (minimum ${check.minSessionMinutes} ${minuteWord}). Please recharge your wallet to continue.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Recharge Wallet', onPress: () => rechargeForChat(check.shortfallAmount) },
+        showDialog({
+          title: 'Insufficient Balance',
+          tone: 'wallet',
+          message: `You need at least ${rupees(check.shortfallAmount)} more in your wallet to start this chat (minimum ${check.minSessionMinutes} ${minuteWord}).`,
+          actions: [
+            { label: 'Cancel', variant: 'secondary' },
+            { label: 'Recharge Wallet', onPress: () => rechargeForChat(check.shortfallAmount) },
           ],
-        );
+        });
         return;
       }
     } catch {
@@ -768,14 +778,15 @@ function App() {
       if (billing && error instanceof ApiError && error.code === 'insufficient_balance') {
         const shortfall = Number(error.details?.shortfallAmount ?? 0);
         const price = Number(error.details?.price ?? billing.quotedPrice);
-        Alert.alert(
-          'Insufficient Balance',
-          `The ${billing.packageMinutes}-minute package costs ${rupees(price)}. You need ${rupees(shortfall)} more in your wallet. Please recharge to continue.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Recharge Wallet', onPress: () => rechargeForChat(shortfall) },
+        showDialog({
+          title: 'Insufficient Balance',
+          tone: 'wallet',
+          message: `The ${billing.packageMinutes}-minute package costs ${rupees(price)}. You need ${rupees(shortfall)} more in your wallet.`,
+          actions: [
+            { label: 'Cancel', variant: 'secondary' },
+            { label: 'Recharge Wallet', onPress: () => rechargeForChat(shortfall) },
           ],
-        );
+        });
         return;
       }
       if (billing && error instanceof ApiError && error.code === 'price_changed') {
@@ -786,36 +797,39 @@ function App() {
          */
         const newPrice = Number(error.details?.price);
         refreshChatQuote(chatWith.id);
-        Alert.alert(
-          'Price updated',
-          `The ${billing.packageMinutes}-minute package now costs ${rupees(newPrice)}.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
+        showDialog({
+          title: 'Price updated',
+          tone: 'info',
+          message: `The ${billing.packageMinutes}-minute package now costs ${rupees(newPrice)}.`,
+          actions: [
+            { label: 'Cancel', variant: 'secondary' },
             {
-              text: `Pay ${rupees(newPrice)}`,
+              label: `Pay ${rupees(newPrice)}`,
               onPress: () => {
                 connectChat({ ...intake, consultation: { mode: 'package', minutes: billing.packageMinutes, price: newPrice } });
               },
             },
           ],
-        );
+        });
         return;
       }
       if (error instanceof ApiError && error.code === 'insufficient_balance') {
-        Alert.alert(
-          'Insufficient Balance',
-          'You have insufficient funds to start this consultation. Please recharge your wallet to continue.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Recharge Wallet', onPress: () => rechargeForChat(chatQuote?.ratePerMinute) },
+        showDialog({
+          title: 'Insufficient Balance',
+          tone: 'wallet',
+          message: 'There is not enough in your wallet to start this consultation.',
+          actions: [
+            { label: 'Cancel', variant: 'secondary' },
+            { label: 'Recharge Wallet', onPress: () => rechargeForChat(chatQuote?.ratePerMinute) },
           ],
-        );
+        });
         return;
       }
-      Alert.alert(
-        'Could not start chat',
-        error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      );
+      showDialog({
+        title: 'Could not start chat',
+        tone: 'error',
+        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
+      });
     } finally {
       setSubmittingChat(false);
     }
@@ -869,11 +883,19 @@ function App() {
         setRoute('consultationChat');
       },
       onRejected: reason => {
-        Alert.alert('Request declined', reason || `${chatWith?.name ?? 'The astrologer'} is not available right now.`);
+        showDialog({
+          title: 'Request declined',
+          tone: 'info',
+          message: reason || `${chatWith?.name ?? 'The astrologer'} is not available right now.`,
+        });
         settle(chatOrigin);
       },
       onMissed: () => {
-        Alert.alert('No answer', `${chatWith?.name ?? 'The astrologer'} did not respond in time.`);
+        showDialog({
+          title: 'No answer',
+          tone: 'info',
+          message: `${chatWith?.name ?? 'The astrologer'} did not respond in time.`,
+        });
         settle(chatOrigin);
       },
     });
@@ -896,7 +918,7 @@ function App() {
       unsubscribe();
       clearInterval(poll);
     };
-  }, [connecting, requestedChatId, chatOrigin, chatWith?.name]);
+  }, [connecting, requestedChatId, chatOrigin, chatWith?.name, showDialog]);
 
   /** Call is still the same promise wherever it is pressed. */
   const startCall = (from: Route, name?: string) =>
@@ -1464,6 +1486,12 @@ function App() {
           onBack={() => setRoute('kundliResult')}
         />
       )}
+
+      {/**
+        * Last in the tree, so it sits over whichever screen is showing: one
+        * dialog for every message this file used to hand to the OS.
+        */}
+      <AppDialog request={dialogRequest} onDismiss={dismissDialog} />
     </SafeAreaProvider>
   );
 }

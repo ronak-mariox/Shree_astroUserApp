@@ -9,10 +9,11 @@
  * tens of thousands, ever looked right.
  */
 import React from 'react';
-import { Alert, Share } from 'react-native';
+import { Share } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppDialog } from '../src/components/AppDialog';
 import { MoreOptionsSheet } from '../src/components/MoreOptionsSheet';
 import { AstrologerDetailScreen } from '../src/screens/AstrologerDetailScreen';
 import * as api from '../src/services/api';
@@ -213,8 +214,13 @@ describe('the header\'s More Options', () => {
     expect(message).not.toMatch(/https?:\/\//);
   });
 
+  /** What the app's own dialog is currently saying, if anything. */
+  const dialogText = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    const shown = tree.root.findAllByType(AppDialog)[0]?.props.request;
+    return shown ? `${shown.title} ${shown.message ?? ''}` : '';
+  };
+
   test('Report Astrologer asks what happened, then files it as a dispute', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     (api.raiseTicket as jest.Mock).mockClear();
     const tree = await render(detailScreen());
 
@@ -239,13 +245,14 @@ describe('the header\'s More Options', () => {
     expect(description).toContain('Pt. Rajesh Sharma');
     expect(description).toContain('a-rajesh');
 
-    expect(alert).toHaveBeenCalledWith('Report sent', expect.stringContaining('look into it'));
+    /** Confirmed in the app's own dialog, not an OS alert box. */
+    expect(dialogText(tree)).toContain('Report sent');
+    expect(dialogText(tree)).toContain('look into it');
     /** And the sheets are done with. */
     expect(tree.root.findAllByType(MoreOptionsSheet).filter(d => d.props.visible)).toHaveLength(0);
   });
 
   test('a report that fails to send says so, rather than pretending', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     (api.raiseTicket as jest.Mock).mockRejectedValueOnce(new Error('You are offline.'));
     const tree = await render(detailScreen());
 
@@ -253,7 +260,8 @@ describe('the header\'s More Options', () => {
     await choose(tree, 'Report Astrologer');
     await choose(tree, 'Something else');
 
-    expect(alert).toHaveBeenCalledWith('Could not send the report', 'You are offline.');
+    expect(dialogText(tree)).toContain('Could not send the report');
+    expect(dialogText(tree)).toContain('You are offline.');
   });
 
   test('backing out of the menu files nothing', async () => {
