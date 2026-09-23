@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Image,
   Platform,
+  Share,
   Pressable,
   ScrollView,
   StatusBar,
@@ -12,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from '../components/BrandGradient';
+import { OptionPickerDialog } from '../components/OptionPickerDialog';
 import {
   BackArrowIcon,
   CallNowIcon,
@@ -49,12 +52,31 @@ const PORTRAIT = 81.824;
 const MEDIA_TILE = 82.719;
 const CTA_HEIGHT = 49;
 
+/**
+ * What the header's kebab offers. Both do something real: Share hands the
+ * profile to whatever the phone can share with, and Report files a support
+ * ticket (issueType 'astrologer') that lands on the admin panel's Disputes tab
+ * for somebody to answer.
+ *
+ * Blocking is deliberately not here — nothing on the server can block an
+ * astrologer for one seeker yet, and an option that quietly does nothing is
+ * worse than one that isn't offered.
+ */
+const MORE_OPTIONS = ['Share Profile', 'Report Astrologer'] as const;
+
+/** Why somebody reports an astrologer — the reason becomes the ticket's own words. */
+const REPORT_REASONS = [
+  'Rude or inappropriate behaviour',
+  'Misleading or false predictions',
+  'Asked for payment outside the app',
+  'Ended the consultation early',
+  'Something else',
+] as const;
+
 type AstrologerDetailScreenProps = {
   /** Whoever was tapped in the list; omitted, the pinned profile is shown. */
   astrologer?: AstrologerSummary;
   onBack?: () => void;
-  /** The kebab in the header — report, share, block. */
-  onMoreOptions?: () => void;
   onFollow?: () => void;
   onChat?: () => void;
   onCall?: () => void;
@@ -70,7 +92,6 @@ type AstrologerDetailScreenProps = {
 export function AstrologerDetailScreen({
   astrologer,
   onBack,
-  onMoreOptions,
   onFollow,
   onChat,
   onCall,
@@ -150,7 +171,52 @@ export function AstrologerDetailScreen({
   // Following and the About card both work off local state — neither needs a
   // backend to be useful.
   const [following, setFollowing] = useState(false);
+  /** Which of the header kebab's two sheets is open, if either. */
+  const [menu, setMenu] = useState<'options' | 'report' | null>(null);
   const [aboutExpanded, setAboutExpanded] = useState(false);
+
+  /**
+   * Hands the profile to whatever the phone shares with. No link in it: there is
+   * no web page for an astrologer to open, and a URL that goes nowhere is worse
+   * than a message that stands on its own.
+   */
+  const shareProfile = async () => {
+    const rate = profile.rates.chat?.now ? ` · ${profile.rates.chat.now} for chat` : '';
+    try {
+      await Share.share({
+        message: `Consult ${profile.name} on Shree Astro${
+          profile.stats[0]?.value && profile.stats[0].value !== '—' ? ` — ${profile.stats[0].value} of experience` : ''
+        }${rate}`,
+      });
+    } catch {
+      /** Dismissed, or no share sheet — nothing to report either way. */
+    }
+  };
+
+  /**
+   * Files the report as a support ticket, which is what the admin panel's
+   * Disputes tab reads. The ticket has no astrologer field of its own, so who it
+   * is about goes in the description — that is how whoever answers it knows.
+   */
+  const reportAstrologer = async (reason: string) => {
+    setMenu(null);
+    const who = astrologer?.id ?? detail.data?.id;
+    try {
+      await api.raiseTicket(
+        'astrologer',
+        `${reason} — reported about ${profile.name}${who ? ` (astrologer ${who})` : ''}`,
+      );
+      Alert.alert(
+        'Report sent',
+        'Thank you — our team will look into it. You will hear back on this once it has been reviewed.',
+      );
+    } catch (error) {
+      Alert.alert(
+        'Could not send the report',
+        error instanceof Error ? error.message : 'Please try again in a moment.',
+      );
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -186,7 +252,7 @@ export function AstrologerDetailScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="More options"
-            onPress={onMoreOptions}
+            onPress={() => setMenu('options')}
             style={({ pressed }) => [styles.kebab, pressed && styles.pressed]}
           >
             <KebabIcon size={px(5.26353)} />
@@ -367,6 +433,33 @@ export function AstrologerDetailScreen({
           <Text style={styles.ctaLabel}>Call Now</Text>
         </Pressable>
       </View>
+
+      <OptionPickerDialog
+        visible={menu === 'options'}
+        title="More Options"
+        options={MORE_OPTIONS}
+        value=""
+        onCancel={() => setMenu(null)}
+        onSubmit={chosen => {
+          if (chosen === 'Report Astrologer') {
+            setMenu('report');
+            return;
+          }
+          setMenu(null);
+          if (chosen === 'Share Profile') {
+            shareProfile();
+          }
+        }}
+      />
+
+      <OptionPickerDialog
+        visible={menu === 'report'}
+        title={`Report ${profile.name || 'Astrologer'}`}
+        options={REPORT_REASONS}
+        value=""
+        onCancel={() => setMenu(null)}
+        onSubmit={reportAstrologer}
+      />
     </View>
   );
 }
