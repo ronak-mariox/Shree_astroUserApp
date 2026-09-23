@@ -447,6 +447,7 @@ export function AstrologerDetailScreen({
         title="More Options"
         options={MORE_OPTIONS}
         value=""
+        submitOnSelect
         onCancel={() => setMenu(null)}
         onSubmit={chosen => {
           if (chosen === 'Report Astrologer') {
@@ -465,6 +466,7 @@ export function AstrologerDetailScreen({
         title={`Report ${profile.name || 'Astrologer'}`}
         options={REPORT_REASONS}
         value=""
+        submitOnSelect
         onCancel={() => setMenu(null)}
         onSubmit={reportAstrologer}
       />

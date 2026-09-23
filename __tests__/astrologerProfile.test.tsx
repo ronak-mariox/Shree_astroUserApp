@@ -135,10 +135,14 @@ describe('the header\'s More Options', () => {
   const openSheet = (tree: ReactTestRenderer.ReactTestRenderer) =>
     tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)[0];
 
+  /** Taps the row itself — a menu acts on the first tap, with no Submit to press. */
   const choose = async (tree: ReactTestRenderer.ReactTestRenderer, option: string) => {
-    const sheet = openSheet(tree);
+    const row = openSheet(tree).findAll(
+      n => typeof n.type !== 'string' && typeof n.props.onPress === 'function' && n.props.accessibilityLabel === option,
+    )[0];
+    if (!row) throw new Error(`no "${option}" row on the open sheet`);
     await ReactTestRenderer.act(async () => {
-      await sheet.props.onSubmit(option);
+      await row.props.onPress();
     });
     await ReactTestRenderer.act(async () => {
       for (let i = 0; i < 5; i += 1) await Promise.resolve();
@@ -173,6 +177,18 @@ describe('the header\'s More Options', () => {
     expect(onMoreOptions).toHaveBeenCalledTimes(1);
     /** Its own sheet stays shut — the caller decided what happens instead. */
     expect(tree.root.findAllByType(OptionPickerDialog).filter(d => d.props.visible)).toHaveLength(0);
+  });
+
+  test('one tap is enough — a menu has nothing to confirm', async () => {
+    const tree = await render(detailScreen());
+    await openMenu(tree);
+
+    const sheet = openSheet(tree);
+    expect(sheet.props.submitOnSelect).toBe(true);
+    /** The form-field vocabulary — pick, then Submit — does not belong on a menu. */
+    expect(
+      sheet.findAll(n => typeof n.props.accessibilityLabel === 'string' && n.props.accessibilityLabel === 'Submit'),
+    ).toHaveLength(0);
   });
 
   test('Share Profile hands the profile to the phone', async () => {
