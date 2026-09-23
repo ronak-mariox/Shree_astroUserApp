@@ -206,15 +206,20 @@ export type DailyHoroscope = {
 };
 
 /**
- * The full reading for one sign (GET /horoscope/daily), which is what the Home
- * card's three highlights are cut down from — same source, all of it.
+ * Today's full reading for one sign (GET /horoscope/daily), which is what the
+ * Home card's three highlights are cut down from — same source, same cached row,
+ * all of it.
  *
- * `day` moves a day either side of today; the provider is asked once per sign
- * per day across the whole platform and cached, so paging back and forth costs
- * nothing after the first look.
+ * Real, and fetched once: the backend asks AstrologyAPI at most once per sign
+ * per day for the whole platform and keeps the answer in Mongo
+ * (models/HoroscopeCache, unique on sign + period + date), so every read after
+ * the first that day — every seeker, every screen — is a database read.
+ *
+ * The endpoint can also answer for a day either side; this app does not ask,
+ * because only today's reading is shown.
  */
-export async function fetchDailyHoroscope(sign: string, day?: 'previous' | 'next') {
-  const { data } = await client.get('/horoscope/daily', { params: { sign: sign.toLowerCase(), day } });
+export async function fetchDailyHoroscope(sign: string) {
+  const { data } = await client.get('/horoscope/daily', { params: { sign: sign.toLowerCase() } });
   return data as DailyHoroscope;
 }
 

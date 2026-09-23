@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -13,7 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackButton } from '../components/BackButton';
 import { BottomTabBar, type TabKey } from '../components/BottomTabBar';
 import { BrandGradient } from '../components/BrandGradient';
-import { SegmentedTabs } from '../components/SegmentedTabs';
 import { useApi } from '../hooks/useApi';
 import * as api from '../services/api';
 import {
@@ -28,15 +27,6 @@ import {
 
 /** Top padding Figma drew for a titled screen, measured from the top of the status bar. */
 const DESIGN_PADDING_TOP = 56;
-
-/** Which day's reading — exactly what GET /horoscope/daily's `day` accepts. */
-const DAYS = [
-  { key: 'previous', label: 'Yesterday' },
-  { key: 'today', label: 'Today' },
-  { key: 'next', label: 'Tomorrow' },
-] as const;
-
-type DayKey = (typeof DAYS)[number]['key'];
 
 /**
  * The six areas the provider writes about, in the order they are read: how the
@@ -89,8 +79,9 @@ type DailyHoroscopeScreenProps = {
  * here is invented for the sake of filling a screen: an area the provider left
  * empty is left out.
  *
- * Yesterday and tomorrow are one tap away because the endpoint takes a day and
- * caches per sign per day, so paging costs nothing after the first look.
+ * Today's reading only. The provider writes one a day per sign, this reads that
+ * one, and there is nothing to page through — a screen that offered yesterday
+ * would be offering something nobody came here for.
  */
 export function DailyHoroscopeScreen({
   sign,
@@ -99,11 +90,10 @@ export function DailyHoroscopeScreen({
   onSelectTab,
 }: DailyHoroscopeScreenProps) {
   const insets = useSafeAreaInsets();
-  const [day, setDay] = useState<DayKey>('today');
 
   const reading = useApi(
-    () => (sign ? api.fetchDailyHoroscope(sign, day === 'today' ? undefined : day) : Promise.resolve(null)),
-    [sign, day],
+    () => (sign ? api.fetchDailyHoroscope(sign) : Promise.resolve(null)),
+    [sign],
     { skip: !sign },
   );
 
@@ -133,10 +123,6 @@ export function DailyHoroscopeScreen({
             </Text>
           </View>
         </View>
-
-        {sign ? (
-          <SegmentedTabs segments={DAYS} active={day} onSelect={setDay} style={styles.segments} />
-        ) : null}
       </View>
 
       <ScrollView
@@ -211,7 +197,7 @@ export function DailyHoroscopeScreen({
             })}
 
             <Text style={styles.footnote}>
-              Sun-sign reading for {data.sign}, refreshed once a day.
+              Today's sun-sign reading for {data.sign} — one new reading a day.
             </Text>
           </>
         )}
@@ -244,9 +230,6 @@ const styles = StyleSheet.create({
   subtitle: {
     ...typography.caption,
     color: colors.text.secondary,
-  },
-  segments: {
-    marginTop: spacing.lg,
   },
   body: {
     paddingHorizontal: spacing.section,
