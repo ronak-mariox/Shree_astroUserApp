@@ -122,6 +122,14 @@ type Route =
   | 'chatIntake'
   | 'consultationChat';
 
+/**
+ * Where a signed-in seeker lands: the Consult tab, with its own tab selected
+ * — the astrologers they can talk to, rather than Home. Used by every way in
+ * (signing in, finishing sign-up, and reopening the app with a session
+ * already saved), so the first screen is the same however they arrive.
+ */
+const LANDING_ROUTE: Route = 'availableAstrologers';
+
 /** The bottom-navigation tabs that have a screen behind them so far. */
 const TAB_ROUTES: Partial<Record<TabKey, Route>> = {
   home: 'home',
@@ -364,7 +372,7 @@ function App() {
          * already-complete user should never be shoved into Edit Profile
          * just because the app was updated since they last signed in.
          */
-        setRoute(restored.user.profileComplete !== false ? 'home' : 'editProfile');
+        setRoute(restored.user.profileComplete !== false ? LANDING_ROUTE : 'editProfile');
       }
     });
 
@@ -447,14 +455,14 @@ function App() {
   /**
    * Signing in from any flow lands here. Register and OTP login always leave
    * `profileComplete: true` (the wizard collects everything up front, and OTP
-   * sign-in never opens a new account), so this always routes them to Home.
-   * A first-time Apple/Google sign-in can come back `false` — that account
-   * was opened with only what the provider handed over, nothing astrology
-   * related — so this sends it to Edit Profile instead, pre-filled with
-   * whatever is known, to collect the rest before Home.
+   * sign-in never opens a new account), so this always routes them to the
+   * landing screen. A first-time Apple/Google sign-in can come back `false`
+   * — that account was opened with only what the provider handed over,
+   * nothing astrology related — so this sends it to Edit Profile instead,
+   * pre-filled with whatever is known, to collect the rest first.
    */
   const afterSignIn = (signedIn: AuthSession) => {
-    setRoute(signedIn.user.profileComplete !== false ? 'home' : 'editProfile');
+    setRoute(signedIn.user.profileComplete !== false ? LANDING_ROUTE : 'editProfile');
   };
 
   /**
@@ -560,7 +568,7 @@ function App() {
       await register({ profile: signUp.profile, birth: details, photo: signUp.photo });
       setSignUp(undefined);
     }
-    setRoute('home');
+    setRoute(LANDING_ROUTE);
   };
 
   /**
