@@ -99,8 +99,10 @@ export type ConsultAstrologer = {
   experience: string;
   /** "4,820" — how many consultations they have taken. */
   orders: string;
-  /** Shown only while they are busy, e.g. "Wait 2 min". */
+  /** Shown only while they are busy, e.g. "Wait ~7 min" — an estimate. */
   wait?: string;
+  /** The estimate behind `wait`, in seconds (GET /astrologers' waitSeconds). */
+  waitSeconds?: number;
   /** Struck-through list price. */
   was: string;
   /** What the seeker actually pays, after any offer discount. */

@@ -146,7 +146,13 @@ export const deleteKundli = async () => {};
 export const searchPlaces = async () => [
   { id: 'place:mumbai#0', formatted: 'Mumbai, IN', city: 'Mumbai', country: 'IN', latitude: 19.076, longitude: 72.8777, timezone: 'Asia/Kolkata' },
 ];
-export const createBirthProfile = async () => ({ id: 'profile-1', status: 'ready' });
+export const createBirthProfile = jest.fn(async () => ({ id: 'profile-1', status: 'ready' }));
+/**
+ * Which chart belongs to the seeker's current birth details (GET /kundli/me).
+ * A jest.fn so a test can switch between "none for these details" and "this
+ * one" — what the Kundli tab reads instead of trusting a remembered id.
+ */
+export const fetchCurrentKundli = jest.fn(async () => ({ found: false as const, reason: 'not_generated' as const }));
 
 export const fetchKundliOverview = async () => ({
   profileId: 'profile-1',

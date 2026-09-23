@@ -27,6 +27,7 @@ import {
   type DirectoryAstrologer,
   type DirectoryFilter,
 } from '../data/astrologers';
+import { waitLabel } from '../data/availability';
 import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
@@ -107,6 +108,9 @@ export function FindAstrologersScreen({
     experience: row.experienceYears ? `${row.experienceYears} yrs exp` : '—',
     languages: api.joinLabels(row.languages) || '—',
     consults: `${row.consultations.toLocaleString('en-IN')} consults`,
+    /** "Wait ~7 min" while they finish another consultation; undefined when free. */
+    wait: waitLabel(row),
+    waitSeconds: row.busy ? row.waitSeconds : 0,
   }));
 
   return (
@@ -211,6 +215,10 @@ export function FindAstrologersScreen({
                     <Text style={styles.name}>{astrologer.name}</Text>
                     <Text style={styles.rate}>{astrologer.rate}</Text>
                   </View>
+
+                  {astrologer.wait !== undefined && (
+                    <Text style={styles.wait}>{astrologer.wait}</Text>
+                  )}
 
                   <Text style={styles.specialities}>
                     {astrologer.specialities}
@@ -464,6 +472,12 @@ function createStyles(px: (value: number) => number, contentWidth: number, isTab
       ...typography.footnoteStrong,
       fontFamily: typography.rowTitle.fontFamily,
       color: colors.cosmos.accent,
+    },
+    /** "Wait ~7 min" — the estimate while this astrologer is in another consultation. */
+    wait: {
+      ...typography.caption,
+      color: colors.status.caution,
+      paddingTop: 2,
     },
     specialities: {
       ...typography.caption,

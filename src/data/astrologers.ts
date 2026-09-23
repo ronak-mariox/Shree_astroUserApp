@@ -37,4 +37,8 @@ export type DirectoryAstrologer = {
   languages: string;
   /** "4,820 consults". */
   consults: string;
+  /** "Wait ~7 min" while they are in another consultation; absent when free. */
+  wait?: string;
+  /** The estimate behind `wait`, in seconds (GET /astrologers' waitSeconds). */
+  waitSeconds?: number;
 };
