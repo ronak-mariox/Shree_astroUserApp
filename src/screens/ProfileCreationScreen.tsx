@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -128,7 +127,7 @@ export function ProfileCreationScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={{ paddingBottom: insets.bottom }}

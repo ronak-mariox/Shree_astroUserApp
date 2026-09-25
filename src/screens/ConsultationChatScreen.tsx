@@ -14,6 +14,7 @@ import {
   type ImageSourcePropType,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
 
 import { BrandGradient } from '../components/BrandGradient';
 import { AppDialog } from '../components/AppDialog';
@@ -137,6 +138,15 @@ export function ConsultationChatScreen({
 }: ConsultationChatScreenProps) {
   const insets = useSafeAreaInsets();
   const transcript = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  /** The keyboard covers the navigation bar, so its safe-area padding comes off the composer while it is open. */
+  const keyboardOpen = useKeyboardOpen();
+  useEffect(() => {
+    if (keyboardOpen) {
+      const timer = setTimeout(() => transcript.current?.scrollToEnd({ animated: true }), 80);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [keyboardOpen]);
 
   const state = useApi(() => getChatState(chatId), [chatId]);
   const wallet = useApi(() => fetchWallet(), [chatId]);
@@ -758,11 +768,15 @@ export function ConsultationChatScreen({
 
       <KeyboardAvoidingView
         style={styles.body}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        /** 'padding' on Android too — edge-to-edge ignores adjustResize, see hooks/useKeyboardOpen.ts. */
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           ref={transcript}
           contentContainerStyle={styles.transcript}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           onContentSizeChange={() =>
             transcript.current?.scrollToEnd({ animated: true })
           }
@@ -773,7 +787,7 @@ export function ConsultationChatScreen({
         </ScrollView>
 
         <View
-          style={[styles.composerRow, { paddingBottom: spacing.md + insets.bottom }]}
+          style={[styles.composerRow, { paddingBottom: spacing.md + (keyboardOpen ? 0 : insets.bottom) }]}
         >
           <View style={styles.composer}>
             <TextInput

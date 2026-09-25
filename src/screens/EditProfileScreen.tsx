@@ -207,7 +207,7 @@ export function EditProfileScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={{ paddingBottom: insets.bottom }}
