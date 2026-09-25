@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -325,7 +324,7 @@ export function BirthDetailsScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <View
           style={[

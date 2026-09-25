@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -233,7 +232,7 @@ export function ChatIntakeScreen({
 
       <KeyboardAvoidingView
         style={styles.body}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={[

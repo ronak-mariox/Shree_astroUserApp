@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -13,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
 
 import { AppDialog } from '../components/AppDialog';
 import { BackButton } from '../components/BackButton';
@@ -76,6 +76,15 @@ type AiAstrologyChatScreenProps = {
 export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
   const insets = useSafeAreaInsets();
   const transcript = useRef<ScrollViewHandle>(null);
+  /** The keyboard covers the navigation bar, so its safe-area padding comes off the composer while it is open. */
+  const keyboardOpen = useKeyboardOpen();
+  useEffect(() => {
+    if (keyboardOpen) {
+      const timer = setTimeout(() => transcript.current?.scrollToEnd({ animated: true }), 80);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [keyboardOpen]);
   const [messages, setMessages] = useState<ChatMessage[]>([
     ...openingMessages,
   ]);
@@ -147,7 +156,9 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        /** 'padding' on Android too — edge-to-edge ignores adjustResize, see hooks/useKeyboardOpen.ts. */
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         <View
           style={[
@@ -214,7 +225,7 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
           ))}
         </ScrollView>
 
-        <View style={[styles.composer, { paddingBottom: 24 + insets.bottom }]}>
+        <View style={[styles.composer, { paddingBottom: 24 + (keyboardOpen ? 0 : insets.bottom) }]}>
           <TextInput
             value={draft}
             onChangeText={setDraft}

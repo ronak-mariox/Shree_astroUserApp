@@ -72,7 +72,7 @@ export function AddMoneyScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <View
           style={[
