@@ -65,6 +65,8 @@ type HomeScreenProps = {
   onSelectAstrologer?: (astrologer: Astrologer) => void;
   onSeeAllAstrologers?: () => void;
   onViewAllConsultations?: () => void;
+  /** Bumped by the shell when a push arrives, so the bell's unread dot is re-read without leaving the screen. */
+  refreshKey?: number;
 };
 
 /**
@@ -85,9 +87,10 @@ export function HomeScreen({
   onSelectAstrologer,
   onSeeAllAstrologers,
   onViewAllConsultations,
+  refreshKey = 0,
 }: HomeScreenProps) {
   /** Everything this screen prints, in one call. */
-  const home = useApi(() => api.fetchHome(), []);
+  const home = useApi(() => api.fetchHome(), [refreshKey]);
   /** The carousel is the directory's first few, most popular first. */
   const directory = useApi(() => api.fetchAstrologers({ sort: 'popular', limit: 8 }), []);
 

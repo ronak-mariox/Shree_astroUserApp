@@ -17,6 +17,7 @@ import {
 import { TotalAddedIcon } from '../components/icons/WalletIcons';
 import { useApi } from '../hooks/useApi';
 import * as api from '../services/api';
+import { routeForAction, type NotificationAction } from '../services/notificationRoutes';
 import { type NotificationTint } from '../data/profile';
 import {
   colors,
@@ -69,12 +70,24 @@ const DEFAULT_META = { tint: 'warm' as NotificationTint, glyph: '🔔' };
 
 type NotificationsScreenProps = {
   onBack?: () => void;
+  /** Bumped by the shell when a push arrives or is tapped, so the feed is re-read while it is on screen. */
+  refreshKey?: number;
+  /**
+   * A row was tapped and its action leads somewhere (services/notificationRoutes.ts).
+   * The shell does the navigating — the same function a tapped push goes through.
+   */
+  onOpen?: (action: NotificationAction) => void;
 };
 
-/** Alert feed, unread items tinted warm. Figma: node 180:163797. */
-export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
+/**
+ * Alert feed, unread items tinted warm. A row is a button when tapping it
+ * does something: it marks an unread row read, and opens whatever the
+ * notification is about when the app has a screen for that.
+ * Figma: node 180:163797.
+ */
+export function NotificationsScreen({ onBack, refreshKey = 0, onOpen }: NotificationsScreenProps) {
   const insets = useSafeAreaInsets();
-  const { data, loading, setData } = useApi(() => api.fetchNotifications(), []);
+  const { data, loading, setData } = useApi(() => api.fetchNotifications(), [refreshKey]);
 
   const items = data?.items ?? [];
   const unreadCount = data?.unread ?? 0;
@@ -97,6 +110,33 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
       );
     } catch {
       /** Best effort — a re-open of this screen will show the true state. */
+    }
+  };
+
+  /**
+   * A tapped row: read from now on — shown at once, told to the server in the
+   * background (best effort, like "Mark all read") — and then on to wherever
+   * it leads, if this app has such a place.
+   */
+  const openRow = (item: api.NotificationRow) => {
+    if (!item.readAt) {
+      setData(current =>
+        current
+          ? {
+              ...current,
+              unread: Math.max(0, current.unread - 1),
+              items: current.items.map(row =>
+                row.id === item.id ? { ...row, readAt: row.readAt ?? new Date().toISOString() } : row,
+              ),
+            }
+          : current,
+      );
+      api.markNotificationsRead(item.id).catch(() => {
+        /** A re-open of this screen will show the true state. */
+      });
+    }
+    if (item.action && routeForAction(item.action)) {
+      onOpen?.(item.action);
     }
   };
 
@@ -151,11 +191,20 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
           const unread = !item.readAt;
           const meta = TYPE_META[item.type] ?? DEFAULT_META;
           const Icon = meta.Icon;
+          /** Nothing to mark and nowhere to go: the row is just a row. */
+          const actionable = unread || (onOpen !== undefined && routeForAction(item.action) !== undefined);
 
           return (
-            <View
+            <Pressable
               key={item.id}
-              style={[styles.card, unread ? styles.cardUnread : styles.cardRead]}
+              accessibilityRole={actionable ? 'button' : undefined}
+              disabled={!actionable}
+              onPress={() => openRow(item)}
+              style={({ pressed }) => [
+                styles.card,
+                unread ? styles.cardUnread : styles.cardRead,
+                pressed && styles.pressed,
+              ]}
             >
               <View style={[styles.tile, { backgroundColor: TINTS[meta.tint] }]}>
                 {Icon ? (
@@ -177,7 +226,7 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
                 {item.body ? <Text style={styles.body_}>{item.body}</Text> : null}
                 <Text style={styles.time}>{api.timeAgo(item.createdAt)}</Text>
               </View>
-            </View>
+            </Pressable>
           );
         })}
       </ScrollView>

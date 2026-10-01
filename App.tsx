@@ -4,7 +4,7 @@
  * @format
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -15,25 +15,32 @@ import type { Receipt } from './src/screens/PaymentSuccessScreen';
 import { register, signOut, type AuthSession, type PhotoAsset } from './src/services/auth';
 import {
   cancelChat,
-  confirmTopUp,
   connectLiveUpdates,
   createBirthProfile,
   fetchCurrentKundli,
   disconnectLiveUpdates,
+  fetchConsultations,
   fetchProfile,
   getChatState,
   precheckSession,
   requestChat,
   rupees,
   saveProfile,
-  startTopUp,
   subscribeToRequest,
   type Intake,
 } from './src/services/api';
 import { toPackageBooking, type PackageQuote } from './src/data/consultPackages';
 import { busyForLabel } from './src/data/availability';
 import { ApiError } from './src/services/client';
+import {
+  PaymentUnconfirmedError,
+  describePaymentError,
+  paidWithLabel,
+  payTopUp,
+} from './src/services/payments';
 import { paymentMethods, type PaymentMethodId } from './src/data/wallet';
+import { routeForAction, type NotificationAction } from './src/services/notificationRoutes';
+import { disablePush, enablePush, pushActionOf, type PushData, type PushMessage } from './src/services/push';
 import {
   onSessionChange,
   restoreSession,
@@ -47,6 +54,7 @@ import {
 } from './src/services/kundliProfile';
 import { colors } from './src/theme';
 import { pickProfilePhoto } from './src/services/photoPicker';
+import { portraitOf } from './src/utils/images';
 import type { AstrologerSummary } from './src/data/astrologerProfile';
 import { AddMoneyScreen } from './src/screens/AddMoneyScreen';
 import { AiAstrologyChatScreen } from './src/screens/AiAstrologyChatScreen';
@@ -174,6 +182,16 @@ const PUBLIC_ROUTES = new Set<Route>([
   'comingSoon',
 ]);
 
+/**
+ * Screens a push must not talk over or pull the seeker away from: a
+ * consultation that is being billed by the minute, and a payment whose
+ * checkout is open. The notification is in the feed either way.
+ */
+const UNINTERRUPTIBLE_ROUTES = new Set<Route>(['consultationChat', 'paymentProcessing']);
+
+/** Screens whose own Back already reads `pushedOrigin` — opening Notifications (or the history) from one keeps that origin rather than pointing it at themselves. */
+const PUSHED_ROUTES = new Set<Route>(['notifications', 'transactionHistory', 'pushedConsultations']);
+
 /** "1999-08-15T00:00:00.000Z" -> "15/08/1999". Read as UTC fields, since a birth date is stored at UTC midnight precisely so no local timezone can shift the day. */
 function dobFromIso(value?: string): string {
   if (!value) {
@@ -221,13 +239,27 @@ function App() {
    * a message can depend on it without restarting on every open and close.
    */
   const { request: dialogRequest, show: showDialog, dismiss: dismissDialog } = useDialog();
+  /**
+   * The route and the open dialog as of the latest render, for the push
+   * handlers below: they are registered once per sign-in and fire at any
+   * later moment, so they read these rather than the values they closed over.
+   */
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const dialogRef = useRef(dialogRequest);
+  dialogRef.current = dialogRequest;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  /**
+   * Bumped whenever a push says the notifications have changed. Nothing in
+   * this file holds the feed or the unread count — Home reads the count with
+   * the rest of GET /home and the Notifications screen loads its own list —
+   * so this is handed to both as the cue to read again.
+   */
+  const [notificationsVersion, setNotificationsVersion] = useState(0);
   /** Amount carried through the wallet top-up flow. */
   const [topUp, setTopUp] = useState(200);
-  /** The pending row `startTopUp` opened — what `confirmTopUp` settles. */
-  const [topUpTransactionId, setTopUpTransactionId] = useState<string>();
-  /** Cosmetic today (no gateway to actually route through) but recorded on the transaction. */
-  const [topUpMethod, setTopUpMethod] = useState<PaymentMethodId>();
-  /** What `confirmTopUp` came back with, for the receipt screen to print. */
+  /** What `payTopUp` came back with, for the receipt screen to print. */
   const [topUpReceipt, setTopUpReceipt] = useState<Receipt>();
   /** Whoever was tapped in a listing, and the screen to go back to. */
   const [astrologer, setAstrologer] = useState<AstrologerSummary>();
@@ -305,6 +337,8 @@ function App() {
     waitSeconds?: number;
   }>();
   const [chatOrigin, setChatOrigin] = useState<Route>('availableAstrologers');
+  /** Chat or voice call: which of the astrologer's two rates the request is priced at, and which layout the consultation opens in. */
+  const [chatChannel, setChatChannel] = useState<'chat' | 'call'>('chat');
   const [busyShown, setBusyShown] = useState(false);
   const [connecting, setConnecting] = useState(false);
   /** Raised by the cross under the connecting card. */
@@ -340,6 +374,15 @@ function App() {
    * from the wallet, which keeps its usual Wallet / Home endings.
    */
   const [rechargeReturnTo, setRechargeReturnTo] = useState<Route>();
+  /**
+   * The chat request as of the latest render, for `openNotification` below:
+   * which chat the shell is holding, and whether the seeker is still waiting
+   * on its answer (the connecting card, or the "decline?" sheet over it).
+   */
+  const chatRequestRef = useRef<{ chatId?: string; waiting: boolean }>({ waiting: false });
+  chatRequestRef.current = { chatId: requestedChatId, waiting: connecting || declining };
+  /** Bumped by every tapped notification, so a slow lookup for an earlier tap cannot navigate after a later one has. */
+  const openAttempt = useRef(0);
 
   /** "Recharge Wallet" from the chat flow: top up (pre-filled with what's missing), then come back to the intake form. */
   const rechargeForChat = (shortfall?: number) => {
@@ -408,6 +451,13 @@ function App() {
           connectLiveUpdates();
         } else {
           disconnectLiveUpdates();
+          /**
+           * Logout has already done this, with the token still valid (see
+           * handleLogout) — this is for the session that ended by itself. The
+           * server can no longer be told, but deleting the FCM token here
+           * still stops the previous account's pushes reaching this phone.
+           */
+          disablePush();
           /**
            * A kundli belongs to one account, not to the device — cleared here
            * rather than only on the Logout button, so a forced sign-out (an
@@ -484,9 +534,198 @@ function App() {
    * the same way it does for a forced sign-out.
    */
   const handleLogout = async () => {
+    /**
+     * Before the session goes: taking this device's push token off the
+     * account is an authenticated call. Best-effort and time-boxed inside
+     * `disablePush`, so it can delay a logout but never prevent one.
+     */
+    await disablePush();
     await signOut();
     setRoute('welcome');
   };
+
+  /**
+   * The Notifications list or the consultation history, on top of wherever
+   * the seeker is: both read `pushedOrigin` for their Back, so it is pointed
+   * at the screen being left — unless that screen is itself one of them, in
+   * which case the origin it already has is the one worth keeping.
+   */
+  const openPushed = useCallback((next: 'notifications' | 'pushedConsultations') => {
+    const current = routeRef.current;
+    if (current === next) {
+      return;
+    }
+    if (!PUSHED_ROUTES.has(current)) {
+      setPushedOrigin(current);
+    }
+    setRoute(next);
+  }, []);
+
+  /**
+   * A notification about one consultation. The server is asked where the
+   * session stands rather than trusting what the notification said when it
+   * was sent: still `active` opens the live consultation; anything else —
+   * ended, declined, never answered, or a session that cannot be read at all
+   * — opens the history.
+   *
+   * The live screen needs who the session is with, which the notification
+   * does not carry, so it is read from the session's own row in GET /chats.
+   * A row that cannot be read costs the name ("your astrologer"), not the
+   * consultation.
+   */
+  const openConsultation = useCallback(
+    async (chatId: string, attempt: number) => {
+      let live: { channel: 'chat' | 'call'; with?: { id?: string; name: string; photo?: string } } | undefined;
+      try {
+        const state = await getChatState(chatId);
+        if (state.status === 'active') {
+          live = { channel: state.channel === 'call' ? 'call' : 'chat' };
+          try {
+            const row = (await fetchConsultations('active')).find(entry => entry.id === chatId);
+            if (row) {
+              live.with = { id: row.astrologerId, name: row.astrologer, photo: row.photo };
+            }
+          } catch {
+            /** The session is live either way; only the name is missing. */
+          }
+        }
+      } catch {
+        /** Unreachable, or not this account's session: the history is where it would be listed. */
+      }
+
+      /** Looked up over the network — the seeker may have tapped something else, started a consultation or signed out since. */
+      const current = routeRef.current;
+      if (attempt !== openAttempt.current || !sessionRef.current || UNINTERRUPTIBLE_ROUTES.has(current)) {
+        return;
+      }
+
+      const request = chatRequestRef.current;
+      if (live && request.chatId === chatId) {
+        /** The very request the shell is holding (the connecting card may still be up): it already knows who it is with. */
+        setConnecting(false);
+        setDeclining(false);
+        setRoute('consultationChat');
+        return;
+      }
+      if (!live || request.waiting) {
+        /** Not live — or the seeker is mid-request for another session, which is not dropped for this one. */
+        openPushed('pushedConsultations');
+        return;
+      }
+
+      setChatWith({
+        id: live.with?.id ?? '',
+        name: live.with?.name ?? 'your astrologer',
+        photo: live.with ? portraitOf(live.with.photo) : undefined,
+      });
+      setChatChannel(live.channel);
+      /** Where ending the consultation returns to. The intake form is for whoever `chatWith` was, so it is not somewhere to come back to. */
+      setChatOrigin(current === 'chatIntake' ? LANDING_ROUTE : current);
+      setRequestedChatId(chatId);
+      setRoute('consultationChat');
+    },
+    [openPushed],
+  );
+
+  /**
+   * Where a notification leads when it is tapped — a push in the tray
+   * (including the one that launched the app) and a row in the Notifications
+   * list both come through here, and services/notificationRoutes.ts decides
+   * the destination for both. An action this app has no screen for opens the
+   * Notifications list, where the notification is listed.
+   *
+   * Never away from a live consultation or an open checkout.
+   */
+  const openNotification = useCallback(
+    (action?: NotificationAction) => {
+      const attempt = (openAttempt.current += 1);
+      if (UNINTERRUPTIBLE_ROUTES.has(routeRef.current)) {
+        return;
+      }
+
+      const destination = routeForAction(action);
+      if (!destination) {
+        openPushed('notifications');
+      } else if (destination.route === 'wallet') {
+        setRoute('wallet');
+      } else if (destination.route === 'consultations') {
+        openPushed('pushedConsultations');
+      } else {
+        openConsultation(destination.params.chatId, attempt);
+      }
+    },
+    [openConsultation, openPushed],
+  );
+
+  /**
+   * A push tapped in the tray: its `data.action` is JSON ("" when there is
+   * none); empty or unreadable means the list. The feed and the unread count
+   * are re-read either way — the push is news to both.
+   */
+  const openPush = useCallback(
+    (data: PushData) => {
+      setNotificationsVersion(version => version + 1);
+      openNotification(pushActionOf(data));
+    },
+    [openNotification],
+  );
+
+  /**
+   * A push that arrives with the app open is not drawn by the system, so it
+   * is shown in the app's own dialog — and the unread count is re-read either
+   * way. It stays quiet where the dialog would be in the way: over a live
+   * consultation or an open checkout, on top of a dialog that is waiting for
+   * an answer, and for consultation events, which the live socket has already
+   * put on screen (the connecting card, "No answer", the chat itself).
+   */
+  const showPush = useCallback(
+    (message: PushMessage) => {
+      setNotificationsVersion(version => version + 1);
+      if (!message.title && !message.body) {
+        return;
+      }
+      if (UNINTERRUPTIBLE_ROUTES.has(routeRef.current) || dialogRef.current?.actions?.length) {
+        return;
+      }
+      if (message.data.type?.startsWith('consultation_')) {
+        return;
+      }
+      showDialog({
+        title: message.title || 'Notification',
+        message: message.body || undefined,
+        tone: 'info',
+      });
+    },
+    [showDialog],
+  );
+
+  /**
+   * Push follows the account: on once someone is signed in — at launch with a
+   * saved session, or the moment a sign-in or sign-up completes — and off
+   * again in the logout path above. Held back until the keystore has been
+   * read, so a tap that launched the app is not routed before the shell has
+   * decided where it starts.
+   */
+  const signedInUserId = session?.user.id;
+  const restoring = route === 'restoring';
+  useEffect(() => {
+    if (!signedInUserId || restoring) {
+      return;
+    }
+    let live = true;
+    let detach: (() => void) | undefined;
+    enablePush({ onForeground: showPush, onOpen: openPush }).then(unsubscribe => {
+      if (live) {
+        detach = unsubscribe;
+      } else {
+        unsubscribe();
+      }
+    });
+    return () => {
+      live = false;
+      detach?.();
+    };
+  }, [signedInUserId, restoring, showPush, openPush]);
 
   /**
    * Saves an Edit Profile change. `saveProfile` already knows to send
@@ -513,62 +752,57 @@ function App() {
   /**
    * Add Money → Payment → Processing → Success.
    *
-   * There is no payment gateway behind this yet — see the doc comment on
-   * services/wallet.service.js on the backend — so `startTopUp` opens a
-   * pending row and `confirmTopUp` (called from PaymentProcessingScreen's
-   * `onSettled`) credits the wallet immediately. Both calls exist as the
-   * two-step shape a real gateway would need, so wiring one in later is
-   * filling the gap between them, not a rewrite.
+   * Add Money only settles the amount; nothing is opened on the server until
+   * "Pay" is pressed, so backing out of the Payment screen leaves no pending
+   * order behind.
    */
-  const beginTopUp = async (amount: number) => {
-    try {
-      const order = await startTopUp(amount);
-      setTopUpTransactionId(order.transactionId);
-      setTopUp(amount);
-      setRoute('payment');
-    } catch (error) {
-      showDialog({
-        title: 'Could not start top-up',
-        tone: 'error',
-        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      });
-    }
-  };
-
-  /** Called by PaymentProcessingScreen once its interstitial beat is done. */
-  const settleTopUp = async () => {
-    if (!topUpTransactionId) {
-      setRoute('payment');
-      return;
-    }
-
-    const methodLabel = paymentMethods.find(option => option.id === topUpMethod)?.name ?? '—';
-    const transaction = await confirmTopUp(topUpTransactionId, undefined, methodLabel);
-    const amount = transaction.amount ?? topUp;
-    const balanceAfter = transaction.balanceAfter ?? amount;
-
-    setTopUpReceipt({
-      transactionId: transaction.reference ?? transaction.id ?? topUpTransactionId,
-      method: transaction.method ?? methodLabel,
-      dateTime: new Date().toLocaleString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      }),
-      previousBalance: rupees(balanceAfter - amount),
-      newBalance: rupees(balanceAfter),
-    });
-    setTopUpTransactionId(undefined);
-    setRoute('paymentSuccess');
-  };
-
-  /** A confirmTopUp failure — the interstitial's beat already ran; explain and go back. */
-  const failTopUp = (message: string) => {
-    showDialog({ title: 'Payment failed', tone: 'error', message });
+  const beginTopUp = (amount: number) => {
+    setTopUp(amount);
     setRoute('payment');
+  };
+
+  /**
+   * "Pay ₹X Securely". `payTopUp` (services/payments.ts) does the whole
+   * thing — opens the order, puts the Razorpay checkout on top of the
+   * Processing screen, and has the server verify and credit the payment —
+   * and the receipt is printed from what it returns. The method picked on
+   * the Payment screen is a preference: the checkout opens on it, and the
+   * receipt prints whatever was actually used.
+   */
+  const payForTopUp = async (method: PaymentMethodId) => {
+    const methodLabel = paymentMethods.find(option => option.id === method)?.name ?? '—';
+    setRoute('paymentProcessing');
+
+    try {
+      const transaction = await payTopUp({ amount: topUp, method, methodLabel });
+      const amount = transaction.amount ?? topUp;
+      const balanceAfter = transaction.balanceAfter ?? amount;
+
+      setTopUpReceipt({
+        transactionId: transaction.reference ?? transaction.id ?? transaction._id ?? '—',
+        method: paidWithLabel(transaction, methodLabel),
+        dateTime: new Date().toLocaleString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+        }),
+        previousBalance: rupees(balanceAfter - amount),
+        newBalance: rupees(balanceAfter),
+      });
+      setRoute('paymentSuccess');
+    } catch (error) {
+      /** A closed checkout gets a word too: the seeker is dropped back on the Payment screen and should know why. */
+      showDialog(describePaymentError(error).dialog);
+      /**
+       * Back to the Payment screen to try again — except when the money has
+       * already moved and only the confirmation is outstanding, where "try
+       * again" would be paying twice: that one lands on the wallet instead.
+       */
+      setRoute(error instanceof PaymentUnconfirmedError ? 'wallet' : 'payment');
+    }
   };
 
   /**
@@ -713,16 +947,19 @@ function App() {
       /** The estimate behind `wait`, in seconds, for the busy sheet's sentence. */
       waitSeconds?: number;
     },
+    /** 'call' prices the request at the astrologer's call rate and opens the consultation in the voice-call layout. */
+    channel: 'chat' | 'call' = 'chat',
   ) => {
     setChatWith(target);
     setChatOrigin(from);
+    setChatChannel(channel);
     if (target.wait !== undefined && target.wait !== '') {
       setBusyShown(true);
       return;
     }
 
     try {
-      const check = await precheckSession(target.id, 'chat');
+      const check = await precheckSession(target.id, channel);
       if (!check.astrologerAvailable) {
         setBusyShown(true);
         return;
@@ -732,7 +969,7 @@ function App() {
         showDialog({
           title: 'Insufficient Balance',
           tone: 'wallet',
-          message: `You need at least ${rupees(check.shortfallAmount)} more in your wallet to start this chat (minimum ${check.minSessionMinutes} ${minuteWord}).`,
+          message: `You need at least ${rupees(check.shortfallAmount)} more in your wallet to start this ${channel} (minimum ${check.minSessionMinutes} ${minuteWord}).`,
           actions: [
             { label: 'Cancel', variant: 'secondary' },
             { label: 'Recharge Wallet', onPress: () => rechargeForChat(check.shortfallAmount) },
@@ -769,7 +1006,7 @@ function App() {
 
     setSubmittingChat(true);
     try {
-      const request = await requestChat(chatWith.id, toApiIntake(intake), 'chat', billing);
+      const request = await requestChat(chatWith.id, toApiIntake(intake), chatChannel, billing);
       setIntakeDraft(undefined);
       setRequestedChatId(request.chatId);
       setWaitLeft(request.expiresInSeconds);
@@ -826,7 +1063,7 @@ function App() {
         return;
       }
       showDialog({
-        title: 'Could not start chat',
+        title: `Could not start ${chatChannel}`,
         tone: 'error',
         message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
       });
@@ -835,18 +1072,21 @@ function App() {
     }
   };
 
-  /** Re-reads the rate, package quotes and balance the intake form prices from. A failed read just leaves the form per-minute only. */
-  const refreshChatQuote = (astrologerId: string) => {
-    precheckSession(astrologerId, 'chat')
-      .then(check => {
-        setChatQuote(
-          check.ratePerMinute > 0
-            ? { ratePerMinute: check.ratePerMinute, packages: check.packages, balance: check.balance }
-            : undefined,
-        );
-      })
-      .catch(() => setChatQuote(undefined));
-  };
+  /** Re-reads the rate, package quotes and balance the intake form prices from — at the chat or call rate, whichever was chosen. A failed read just leaves the form per-minute only. */
+  const refreshChatQuote = useCallback(
+    (astrologerId: string) => {
+      precheckSession(astrologerId, chatChannel)
+        .then(check => {
+          setChatQuote(
+            check.ratePerMinute > 0
+              ? { ratePerMinute: check.ratePerMinute, packages: check.packages, balance: check.balance }
+              : undefined,
+          );
+        })
+        .catch(() => setChatQuote(undefined));
+    },
+    [chatChannel],
+  );
 
   /** Fresh pricing every time the form opens — including after a recharge, or via the busy sheet's "Wait". */
   useEffect(() => {
@@ -855,7 +1095,7 @@ function App() {
       setChatQuote(undefined);
       refreshChatQuote(chatWith.id);
     }
-  }, [route, chatWith?.id]);
+  }, [route, chatWith?.id, refreshChatQuote]);
 
   /**
    * While the connecting card is up, find out how the astrologer answered.
@@ -920,14 +1160,13 @@ function App() {
     };
   }, [connecting, requestedChatId, chatOrigin, chatWith?.name, showDialog]);
 
-  /** Call is still the same promise wherever it is pressed. */
-  const startCall = (from: Route, name?: string) =>
-    comeBackLater(
-      from,
-      `Call ${name ?? 'your astrologer'}`,
-      'Voice consultations are being built. You will be able to call an astrologer straight from here.',
-      '📞',
-    );
+  /**
+   * A call is the same flow as a chat — the intake form, the request, the
+   * wait for an answer — priced at the astrologer's call rate; once accepted,
+   * the consultation opens in the voice-call layout instead of the transcript.
+   */
+  const startCall = (from: Route, target: Parameters<typeof startChat>[1]) =>
+    startChat(from, target, 'call');
 
   /** Tabs without a screen yet stay put rather than routing nowhere. */
   const selectTab = (tab: TabKey) => {
@@ -1002,8 +1241,8 @@ function App() {
 
       {route === 'profileCreation' && (
         <ProfileCreationScreen
-          onContinue={(profile, photo) => {
-            setSignUp({ profile, photo });
+          onContinue={(created, photo) => {
+            setSignUp({ profile: created, photo });
             setBirthDetailsOrigin('profileCreation');
             setRoute('birthDetails');
           }}
@@ -1046,6 +1285,7 @@ function App() {
           onSeeAllAstrologers={() => setRoute('findAstrologers')}
           onSearchPress={() => setRoute('findAstrologers')}
           onNotificationsPress={() => push('notifications', 'home')}
+          refreshKey={notificationsVersion}
           onProfilePress={() => setRoute('profile')}
           onAddFunds={() => {
             setRechargeReturnTo(undefined);
@@ -1097,7 +1337,15 @@ function App() {
               waitSeconds: picked.waitSeconds,
             })
           }
-          onCall={picked => startCall('findAstrologers', picked.name)}
+          onCall={picked =>
+            startCall('findAstrologers', {
+              id: picked.id,
+              name: picked.name,
+              photo: picked.photo,
+              wait: picked.wait,
+              waitSeconds: picked.waitSeconds,
+            })
+          }
         />
       )}
 
@@ -1123,15 +1371,17 @@ function App() {
           }
           onSearch={() => setRoute('findAstrologers')}
           onConsult={(picked, mode) =>
-            mode === 'chat'
-              ? startChat('availableAstrologers', {
-                  id: picked.id,
-                  name: picked.name,
-                  photo: picked.photo,
-                  wait: picked.wait,
-                  waitSeconds: picked.waitSeconds,
-                })
-              : startCall('availableAstrologers', picked.name)
+            startChat(
+              'availableAstrologers',
+              {
+                id: picked.id,
+                name: picked.name,
+                photo: picked.photo,
+                wait: picked.wait,
+                waitSeconds: picked.waitSeconds,
+              },
+              mode,
+            )
           }
         />
       )}
@@ -1149,7 +1399,15 @@ function App() {
               waitSeconds: astrologer?.waitSeconds,
             })
           }
-          onCall={() => startCall('astrologerDetail', astrologer?.name)}
+          onCall={() =>
+            startCall('astrologerDetail', {
+              id: astrologer?.id ?? '',
+              name: astrologer?.name ?? 'your astrologer',
+              photo: astrologer?.photo,
+              wait: astrologer?.wait,
+              waitSeconds: astrologer?.waitSeconds,
+            })
+          }
         />
       )}
 
@@ -1200,15 +1458,12 @@ function App() {
         <PaymentScreen
           amount={topUp}
           onBack={() => setRoute('addMoney')}
-          onPay={method => {
-            setTopUpMethod(method);
-            setRoute('paymentProcessing');
-          }}
+          onPay={payForTopUp}
         />
       )}
 
       {route === 'paymentProcessing' && (
-        <PaymentProcessingScreen onSettled={settleTopUp} onFailed={failTopUp} />
+        <PaymentProcessingScreen />
       )}
 
       {route === 'profile' && (
@@ -1277,7 +1532,11 @@ function App() {
       )}
 
       {route === 'notifications' && (
-        <NotificationsScreen onBack={() => setRoute(pushedOrigin)} />
+        <NotificationsScreen
+          onBack={() => setRoute(pushedOrigin)}
+          refreshKey={notificationsVersion}
+          onOpen={openNotification}
+        />
       )}
 
       {route === 'paymentSuccess' && (
@@ -1378,7 +1637,7 @@ function App() {
           onBack={() => setRoute(chatOrigin)}
           onMyOrders={() => push('pushedConsultations', 'chatIntake')}
           onConnect={connectChat}
-          channel="chat"
+          channel={chatChannel}
           ratePerMinute={chatQuote?.ratePerMinute}
           packageQuotes={chatQuote?.packages}
           walletBalance={chatQuote?.balance}
@@ -1419,6 +1678,7 @@ function App() {
         name={chatWith?.name ?? 'your astrologer'}
         photo={chatWith?.photo}
         seconds={waitLeft}
+        channel={chatChannel}
         onCancel={() => {
           // The design shows the decline sheet over the form, not the card.
           setConnecting(false);
@@ -1460,8 +1720,9 @@ function App() {
           }}
           onStartNewChat={() => {
             setRequestedChatId(undefined);
-            if (chatWith) {
-              startChat(chatOrigin, chatWith);
+            /** A session reopened from a notification may not know who it was with (see openConsultation) — nobody to send a new request to. */
+            if (chatWith?.id) {
+              startChat(chatOrigin, chatWith, chatChannel);
             } else {
               setRoute(chatOrigin);
             }

@@ -31,6 +31,8 @@ type ConnectingDialogProps = {
   onCancel: () => void;
   /** Reports the seconds left, so a paused request can resume where it was. */
   onTick?: (remaining: number) => void;
+  /** 'call' words the wait as a call being placed; 'chat' (the default) as before. */
+  channel?: 'chat' | 'call';
 };
 
 const clock = (total: number) =>
@@ -51,8 +53,10 @@ export function ConnectingDialog({
   seconds,
   onCancel,
   onTick,
+  channel = 'chat',
 }: ConnectingDialogProps) {
   const [remaining, setRemaining] = useState(seconds);
+  const isCall = channel === 'call';
 
   /**
    * Purely a display countdown of how long the request is allowed to sit
@@ -110,12 +114,15 @@ export function ConnectingDialog({
             </View>
 
             <Text style={styles.connecting}>
-              Connecting With <Text style={styles.connectingName}>{name}</Text>
+              {isCall ? 'Calling ' : 'Connecting With '}
+              <Text style={styles.connectingName}>{name}</Text>
             </Text>
           </View>
 
           <View style={styles.body}>
-            <Text style={styles.status}>Connecting, Please Wait...</Text>
+            <Text style={styles.status}>
+              {isCall ? 'Connecting your call, please wait...' : 'Connecting, Please Wait...'}
+            </Text>
 
             <View style={styles.progressTrack}>
               <View
@@ -126,7 +133,9 @@ export function ConnectingDialog({
               <View style={{ flex: 1 - progress }} />
             </View>
 
-            <Text style={styles.note}>{name} will connect soon ⏱</Text>
+            <Text style={styles.note}>
+              {isCall ? `${name} will answer your call soon ⏱` : `${name} will connect soon ⏱`}
+            </Text>
 
             <Text style={styles.wait}>
               Wait Time - <Text style={styles.waitValue}>{clock(remaining)}</Text>

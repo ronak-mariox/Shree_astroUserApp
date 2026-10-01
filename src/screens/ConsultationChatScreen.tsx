@@ -26,6 +26,7 @@ import {
   ConsultationBubble,
   type ConsultationMessage,
 } from '../components/ConsultationBubble';
+import { HangUpIcon, MicOffIcon, MicOnIcon, SpeakerIcon } from '../components/icons/CallIcons';
 import { WalletPillIcon } from '../components/icons/ChatRoomIcons';
 import { CloseMarkIcon } from '../components/icons/CloseMarkIcon';
 import { SendIcon } from '../components/icons/SendIcon';
@@ -46,18 +47,26 @@ import {
 import { useApi } from '../hooks/useApi';
 import { useDialog } from '../hooks/useDialog';
 import {
-  confirmTopUp,
   continueConsultation,
   endChat,
+  fetchCallToken,
   fetchWallet,
   getChatState,
   rupees,
   sendMessage,
-  startTopUp,
   subscribeToConsultation,
   type ChatMessage,
 } from '../services/api';
 import { ApiError } from '../services/client';
+import { PaymentUnconfirmedError, describePaymentError, payTopUp } from '../services/payments';
+import {
+  joinVoiceCall,
+  leaveVoiceCall,
+  renewVoiceToken,
+  setMuted as setCallMuted,
+  setSpeaker as setCallSpeaker,
+  type VoiceCallEvent,
+} from '../services/voiceCall';
 import {
   colors,
   designFrame,
@@ -76,6 +85,11 @@ const END_ICON = 16;
 const COMPOSER_HEIGHT = 56;
 const SEND_SIZE = 46;
 const SEND_ICON = 20;
+/** The voice-call layout: the large portrait and the round controls under it. */
+const CALL_AVATAR_SIZE = 116;
+const CALL_CONTROL_SIZE = 68;
+const CALL_CONTROL_ICON = 26;
+const HANG_UP_ICON = 30;
 
 type ConsultationChatScreenProps = {
   /** The session POST /chats created — every read and write below is scoped to it. */
@@ -89,11 +103,20 @@ type ConsultationChatScreenProps = {
   onStartNewChat?: () => void;
 };
 
-/** "04:58 mins" — how the header prints the running session. */
-const elapsedLabel = (seconds: number) =>
-  `(${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(
+/**
+ * Where a call's audio stands — separate from the session's billing state,
+ * which the pause and ended flags below carry exactly as they do for a chat.
+ */
+type CallPhase = 'idle' | 'connecting' | 'ringing' | 'connected' | 'reconnecting';
+
+/** "04:58". */
+const clockLabel = (seconds: number) =>
+  `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(
     seconds % 60,
-  ).padStart(2, '0')} mins)`;
+  ).padStart(2, '0')}`;
+
+/** "(04:58 mins)" — how the header prints the running session. */
+const elapsedLabel = (seconds: number) => `(${clockLabel(seconds)} mins)`;
 
 const timeOf = (iso?: string) =>
   (iso ? new Date(iso) : new Date())
@@ -178,6 +201,9 @@ export function ConsultationChatScreen({
   /** The messages this screen used to hand to `Alert.alert`. */
   const dialog = useDialog();
   const [chatEndedVisible, setChatEndedVisible] = useState(false);
+  /** Who closed the session, from the server's `session:ended` — the ended prompt and the call status line say so when it was not the seeker. */
+  const [endedBy, setEndedBy] = useState<'user' | 'astrologer' | 'system' | undefined>();
+  const [endedReason, setEndedReason] = useState<string | undefined>();
   /** Shown once the live tick warns the balance won't cover much more — cleared the moment a normal tick bills fine again. */
   const [lowBalanceVisible, setLowBalanceVisible] = useState(false);
   /**
@@ -193,6 +219,25 @@ export function ConsultationChatScreen({
   const [payingRecharge, setPayingRecharge] = useState(false);
   /** Set the moment the session is actually over, however that happens (this side, the other side, or the server's own grace-period cutoff) — the composer stops taking input right away, whether or not the dialog above it has been dismissed yet. */
   const [closed, setClosed] = useState(false);
+
+  /**
+   * 'chat' or 'call' — from the REST state on open, confirmed by every socket
+   * (re)join. The body is the transcript and composer for a chat and the
+   * voice-call panel for a call; everything else on this screen (the meter,
+   * pauses, packages, recharge, how it ends) is the same for both.
+   */
+  const [channel, setChannel] = useState<'chat' | 'call'>();
+  const isCall = channel === 'call';
+  const [callPhase, setCallPhase] = useState<CallPhase>('idle');
+  /** Why the audio isn't up — the token call refused, no microphone, the engine failed — shown in the status line with a Retry. */
+  const [callError, setCallError] = useState<string>();
+  /** Bumped by Retry, so the join effect below runs again. */
+  const [callAttempt, setCallAttempt] = useState(0);
+  /** The seeker's own choices — kept across a billing pause (which mutes on top of them) and a Retry. */
+  const [muted, setMuted] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(false);
+  /** Whether the astrologer is in the channel right now — what a reconnect resumes to. */
+  const peerPresent = useRef(false);
 
   /**
    * Package sessions only (undefined for per-minute, so none of the package
@@ -279,6 +324,9 @@ export function ConsultationChatScreen({
     if (state.data?.billingMode === 'package' && state.data.package) {
       setPkg(state.data.package);
     }
+    if (state.data?.channel === 'call' || state.data?.channel === 'chat') {
+      setChannel(state.data.channel);
+    }
   }, [state.data]);
 
   // The header's running clock: real elapsed time since the server's own
@@ -346,6 +394,50 @@ export function ConsultationChatScreen({
 
   // The live half of the session: the transcript, the minute meter, low-balance
   // warnings, and however the session ends.
+  /**
+   * Closes the session on this side, once: the ended prompt (with who closed
+   * it), a transcript line when it was the astrologer, and — for a call — out
+   * of the voice channel immediately, whichever way the end was learnt
+   * (`session:ended`, a rejoin, the poll below).
+   */
+  const endedHandled = useRef(false);
+  const finishSession = useRef<(payload: { endedBy?: string; reason?: string }) => void>(() => {});
+  finishSession.current = payload => {
+    if (endedHandled.current) {
+      return;
+    }
+    endedHandled.current = true;
+    leaveVoiceCall();
+    wallet.reload();
+    const by =
+      payload.endedBy === 'astrologer' || payload.reason === 'astrologer_ended'
+        ? 'astrologer'
+        : payload.endedBy === 'user'
+          ? 'user'
+          : 'system';
+    setEndedBy(by);
+    setEndedReason(payload.reason);
+    /** The astrologer closing it gets a line in the transcript too, so the reason survives the prompt being dismissed. */
+    if (by === 'astrologer' || payload.reason === 'astrologer_disconnected') {
+      setMessages(current => [
+        ...current,
+        {
+          id: `system-ended-${Date.now()}`,
+          from: 'system',
+          lines: [
+            payload.reason === 'astrologer_disconnected'
+              ? `${astrologerName} got disconnected — the ${isCall ? 'call' : 'chat'} has ended.`
+              : `${astrologerName} has ended the ${isCall ? 'call' : 'chat'}.`,
+          ],
+          time: timeOf(),
+        },
+      ]);
+    }
+    setClosed(true);
+    setEndChatVisible(false);
+    setChatEndedVisible(true);
+  };
+
   useEffect(() => {
     const unsubscribe = subscribeToConsultation(chatId, 0, {
       onMessage: appendMessage,
@@ -358,8 +450,22 @@ export function ConsultationChatScreen({
        * connection) and never redelivered once it reconnects.
        */
       onRejoinState: payload => {
+        /**
+         * Already over by the time the socket came back: the same close as
+         * `session:ended`, which a socket that was down at that moment never
+         * received — the call audio must not outlive the session.
+         */
+        if (payload.status && payload.status !== 'active' && payload.status !== 'requested') {
+          getChatState(chatId)
+            .then(fresh => finishSession.current({ endedBy: 'system', reason: fresh.endReason }))
+            .catch(() => finishSession.current({ endedBy: 'system' }));
+          return;
+        }
         if (payload.serverTime) {
           clockOffset.current = clockOffsetMs(payload.serverTime);
+        }
+        if (payload.channel === 'call' || payload.channel === 'chat') {
+          setChannel(payload.channel);
         }
         /** Package sessions: resync the package clock too — a package event can be missed exactly like a low-balance one. */
         if (payload.package) {
@@ -438,12 +544,7 @@ export function ConsultationChatScreen({
         }));
         resumeAfterChoice();
       },
-      onEnded: () => {
-        setClosed(true);
-        setEndChatVisible(false);
-        setChatEndedVisible(true);
-        wallet.reload();
-      },
+      onEnded: payload => finishSession.current(payload),
       /**
        * The astrologer's own connection dropping — not the session ending;
        * `onEnded` still fires separately (reason `astrologer_disconnected`)
@@ -479,6 +580,132 @@ export function ConsultationChatScreen({
     // wallet.reload is a fresh closure every render; only chatId should restart the subscription.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, appendMessage]);
+
+  /**
+   * The audio half of a call session. Joins the Agora channel only once the
+   * session is active (the token endpoint refuses before that anyway) and
+   * the token call succeeded; leaves it — once — when the session ends, on
+   * Retry (which then joins afresh), or when this screen goes away.
+   * Billing carries on regardless: the meter, the pauses and the packages
+   * above are the server's, and an audio problem never stops them by itself.
+   */
+  const sessionActive = state.data?.status === 'active';
+  useEffect(() => {
+    if (!isCall || !sessionActive || closed) {
+      return undefined;
+    }
+    let cancelled = false;
+    setCallError(undefined);
+    setCallPhase('connecting');
+    peerPresent.current = false;
+
+    const onEvent = (event: VoiceCallEvent) => {
+      if (cancelled) {
+        return;
+      }
+      switch (event.type) {
+        case 'joined':
+          setCallPhase(peerPresent.current ? 'connected' : 'ringing');
+          break;
+        case 'peerJoined':
+          peerPresent.current = true;
+          setCallPhase('connected');
+          break;
+        case 'peerLeft':
+          peerPresent.current = false;
+          setCallPhase('ringing');
+          break;
+        case 'reconnecting':
+          setCallPhase('reconnecting');
+          break;
+        case 'reconnected':
+          setCallPhase(peerPresent.current ? 'connected' : 'ringing');
+          break;
+        case 'tokenExpiring':
+          fetchCallToken(chatId)
+            .then(grant => {
+              if (!cancelled) {
+                renewVoiceToken(grant.token);
+              }
+            })
+            .catch(() => {
+              /** The current token has its last seconds left; the SDK asks again if it actually runs out. */
+            });
+          break;
+        case 'permissionDenied':
+          setCallError('Microphone access is needed for a voice call. Allow it and retry.');
+          setCallPhase('idle');
+          break;
+        case 'error':
+          setCallError(event.message ? `${event.message} (${event.code})` : `Call error (${event.code})`);
+          setCallPhase('idle');
+          break;
+      }
+    };
+
+    (async () => {
+      try {
+        const grant = await fetchCallToken(chatId);
+        if (cancelled) {
+          return;
+        }
+        if (!grant.appId) {
+          setCallError('Calls need a live server.');
+          setCallPhase('idle');
+          return;
+        }
+        await joinVoiceCall({
+          appId: grant.appId,
+          channelName: grant.channelName,
+          uid: grant.uid,
+          token: grant.token,
+          onEvent,
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setCallError(error instanceof ApiError ? error.message : 'Could not start the call.');
+          setCallPhase('idle');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      leaveVoiceCall();
+    };
+  }, [isCall, sessionActive, closed, chatId, callAttempt]);
+
+  /**
+   * While a call is live, re-read the session every 15s: a socket that was
+   * down when the server ended it (the astrologer's End, their disconnect
+   * grace running out, a timeout) never gets `session:ended`, and the audio
+   * would otherwise carry on with nobody being billed and nobody listening.
+   */
+  useEffect(() => {
+    if (!isCall || !sessionActive || closed) {
+      return undefined;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await getChatState(chatId);
+        if (fresh.status !== 'active') {
+          finishSession.current({ endedBy: 'system', reason: fresh.endReason });
+        }
+      } catch {
+        /** Offline right now — the next tick, or the socket's own event, will say. */
+      }
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [isCall, sessionActive, closed, chatId]);
+
+  /** A billing pause mutes the microphone on top of the seeker's own choice; resuming restores exactly that choice. */
+  useEffect(() => {
+    setCallMuted(muted || sessionPaused);
+  }, [muted, sessionPaused]);
+
+  useEffect(() => {
+    setCallSpeaker(speakerOn);
+  }, [speakerOn]);
 
   /* Package session: what the clock says right now (all false/0 for a per-minute session). */
   const packageSecondsLeft = pkg?.phase === 'package' ? secondsUntil(pkg.endsAt, clockOffset.current) : 0;
@@ -616,19 +843,22 @@ export function ConsultationChatScreen({
   };
 
   /**
-   * No payment gateway is wired up yet (see services/api.ts's startTopUp),
-   * so this credits `amount + bonus` straight away — the same "confirm
-   * immediately" shortcut every top-up in the app takes today. Crediting
-   * only `amount` would break the popup's own "you'll get ₹X" promise the
-   * moment a real gateway (and a real bonus ledger) exist, this is the one
-   * spot that needs to change to actually separate what was paid from what
-   * was credited.
+   * The Recharge popup's "Pay Now". `payTopUp` (services/payments.ts) opens
+   * the order, runs the Razorpay checkout over this screen and has the
+   * server verify and credit the payment; only then is the wallet re-read
+   * and the popup closed.
+   *
+   * The amount is the tier's own figure — what the popup shows as the total,
+   * what the checkout charges and what lands in the wallet are the same sum
+   * (see the note on RechargeOption in data/wallet.ts).
+   *
+   * Closing the checkout is not an error: the popup is still there to pick
+   * another tier or try again, so nothing is said about it.
    */
   const handleRecharge = async (option: RechargeOption) => {
     setPayingRecharge(true);
     try {
-      const pending = await startTopUp(option.amount + option.bonus);
-      await confirmTopUp(pending.transactionId);
+      await payTopUp({ amount: option.amount });
       await wallet.reload();
       setRechargeVisible(false);
       setRechargeMin(undefined);
@@ -638,17 +868,52 @@ export function ConsultationChatScreen({
         state.reload();
       }
     } catch (error) {
-      dialog.show({
-        title: 'Could not add money',
-        tone: 'error',
-        message: error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',
-      });
+      const failure = describePaymentError(error);
+      if (error instanceof PaymentUnconfirmedError) {
+        /** Paid, with only the confirmation outstanding: close the popup so the same recharge is not paid for twice. */
+        setRechargeVisible(false);
+      }
+      if (!failure.cancelled) {
+        dialog.show(failure.dialog);
+      }
     } finally {
       setPayingRecharge(false);
     }
   };
 
   const walletBalance = rupees(wallet.data?.balance ?? 0);
+
+  /* The voice-call panel: what the audio is doing right now, over the same clock and balance the header shows. */
+  const callStatusLine = closed
+    ? endedReason === 'astrologer_disconnected'
+      ? `${astrologerName} got disconnected`
+      : endedBy === 'astrologer'
+        ? `${astrologerName} ended the call`
+        : 'Call ended'
+    : callError !== undefined
+      ? callError
+      : awaitingChoice
+        ? 'Paused — choose how to continue'
+        : sessionPaused
+          ? 'Paused — add money'
+          : callPhase === 'connected'
+            ? 'Connected'
+            : callPhase === 'reconnecting'
+              ? 'Reconnecting…'
+              : callPhase === 'ringing'
+                ? `Ringing… waiting for ${astrologerName}`
+                : 'Connecting…';
+  const callTimerLabel = awaitingChoice
+    ? 'Paused'
+    : pkg?.phase === 'package'
+      ? `${formatCountdown(packageSecondsLeft)} left`
+      : clockLabel(elapsed);
+  const callMetaLabel = `${rupees(state.data?.ratePerMinute ?? 0)}/min · Wallet ${walletBalance}`;
+  const callFailed = callError !== undefined && !closed;
+  const retryCall = () => {
+    setCallError(undefined);
+    setCallAttempt(count => count + 1);
+  };
 
   return (
     <View style={styles.screen}>
@@ -730,6 +995,10 @@ export function ConsultationChatScreen({
 
       <ChatEndedDialog
         visible={chatEndedVisible}
+        endedBy={endedBy}
+        reason={endedReason}
+        astrologerName={astrologerName}
+        channel={isCall ? 'call' : 'chat'}
         onDismiss={() => setChatEndedVisible(false)}
         onResume={() => {
           setChatEndedVisible(false);
@@ -766,55 +1035,178 @@ export function ConsultationChatScreen({
         loading={payingRecharge}
       />
 
-      <KeyboardAvoidingView
-        style={styles.body}
-        /** 'padding' on Android too — edge-to-edge ignores adjustResize, see hooks/useKeyboardOpen.ts. */
-        behavior="padding"
-        keyboardVerticalOffset={0}
-      >
-        <ScrollView
-          ref={transcript}
-          contentContainerStyle={styles.transcript}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          onContentSizeChange={() =>
-            transcript.current?.scrollToEnd({ animated: true })
-          }
-        >
-          {messages.map(message => (
-            <ConsultationBubble key={message.id} message={message} />
-          ))}
-        </ScrollView>
+      {isCall ? (
+        /* A call is voice only for now: the astrologer's portrait, what the line is doing, and the controls — no transcript, no composer. */
+        <View style={styles.body}>
+          <View style={styles.callStage}>
+            <View style={styles.callAvatarRing}>
+              {photo !== undefined ? (
+                <Image source={photo} style={styles.avatar} resizeMode="cover" />
+              ) : (
+                <View style={[styles.avatar, styles.callAvatarFallback]}>
+                  <Text style={styles.callInitial}>{astrologerName.slice(0, 1)}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.callPeer} numberOfLines={1}>
+              {astrologerName}
+            </Text>
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[styles.callStatus, callFailed && styles.callStatusError]}
+            >
+              {callStatusLine}
+            </Text>
+            <Text style={styles.callTimer}>{callTimerLabel}</Text>
+            <Text style={styles.callMeta}>{callMetaLabel}</Text>
 
-        <View
-          style={[styles.composerRow, { paddingBottom: spacing.md + (keyboardOpen ? 0 : insets.bottom) }]}
-        >
-          <View style={styles.composer}>
-            <TextInput
-              accessibilityLabel="Type message"
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Type message..."
-              placeholderTextColor={colors.text.composerHint}
-              style={styles.input}
-              editable={!composerLocked}
-              multiline
-            />
+            {callFailed && (
+              <>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry the call"
+                  onPress={retryCall}
+                  style={({ pressed }) => [styles.retry, pressed && styles.pressed]}
+                >
+                  <BrandGradient radius={radius.button} />
+                  <Text style={styles.retryLabel}>Retry</Text>
+                </Pressable>
+                {/* The session is the server's and keeps billing whether or not the audio comes up — so the way out is spelled out. */}
+                <Text style={styles.callHint}>
+                  The consultation is still running and being billed. End the call if you cannot connect.
+                </Text>
+              </>
+            )}
           </View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send"
-            accessibilityState={{ disabled: draft.trim().length === 0 || composerLocked }}
-            disabled={draft.trim().length === 0 || composerLocked}
-            onPress={send}
-            style={({ pressed }) => [styles.send, pressed && styles.pressed]}
-          >
-            <BrandGradient radius={radius.button} />
-            <SendIcon size={SEND_ICON} color={colors.text.inverse} />
-          </Pressable>
+          <View style={[styles.callControls, { paddingBottom: spacing.xl + insets.bottom }]}>
+            <CallControl
+              label={muted ? 'Unmute' : 'Mute'}
+              accessibilityLabel={muted ? 'Unmute microphone' : 'Mute microphone'}
+              active={muted}
+              disabled={closed}
+              onPress={() => setMuted(current => !current)}
+            >
+              {muted ? <MicOffIcon size={CALL_CONTROL_ICON} /> : <MicOnIcon size={CALL_CONTROL_ICON} />}
+            </CallControl>
+
+            {/* The same confirmation and the same POST /chats/:id/end as the header's cross. */}
+            <View style={styles.callControlBlock}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="End the call"
+                accessibilityState={{ disabled: closed }}
+                disabled={closed}
+                onPress={() => setEndChatVisible(true)}
+                style={({ pressed }) => [styles.hangUp, closed && styles.controlDisabled, pressed && styles.pressed]}
+              >
+                <HangUpIcon size={HANG_UP_ICON} />
+              </Pressable>
+              <Text style={styles.callControlLabel}>End</Text>
+            </View>
+
+            <CallControl
+              label="Speaker"
+              accessibilityLabel={speakerOn ? 'Switch to earpiece' : 'Switch to speaker'}
+              active={speakerOn}
+              disabled={closed}
+              onPress={() => setSpeakerOn(current => !current)}
+            >
+              <SpeakerIcon
+                size={CALL_CONTROL_ICON}
+                color={speakerOn ? colors.text.inverse : colors.text.onYellow}
+              />
+            </CallControl>
+          </View>
         </View>
-      </KeyboardAvoidingView>
+      ) : (
+        <KeyboardAvoidingView
+          style={styles.body}
+          /** 'padding' on Android too — edge-to-edge ignores adjustResize, see hooks/useKeyboardOpen.ts. */
+          behavior="padding"
+          keyboardVerticalOffset={0}
+        >
+          <ScrollView
+            ref={transcript}
+            contentContainerStyle={styles.transcript}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onContentSizeChange={() =>
+              transcript.current?.scrollToEnd({ animated: true })
+            }
+          >
+            {messages.map(message => (
+              <ConsultationBubble key={message.id} message={message} />
+            ))}
+          </ScrollView>
+
+          <View
+            style={[styles.composerRow, { paddingBottom: spacing.md + (keyboardOpen ? 0 : insets.bottom) }]}
+          >
+            <View style={styles.composer}>
+              <TextInput
+                accessibilityLabel="Type message"
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="Type message..."
+                placeholderTextColor={colors.text.composerHint}
+                style={styles.input}
+                editable={!composerLocked}
+                multiline
+              />
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Send"
+              accessibilityState={{ disabled: draft.trim().length === 0 || composerLocked }}
+              disabled={draft.trim().length === 0 || composerLocked}
+              onPress={send}
+              style={({ pressed }) => [styles.send, pressed && styles.pressed]}
+            >
+              <BrandGradient radius={radius.button} />
+              <SendIcon size={SEND_ICON} color={colors.text.inverse} />
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      )}
+    </View>
+  );
+}
+
+type CallControlProps = {
+  label: string;
+  accessibilityLabel: string;
+  /** Painted with the brand gradient while on. */
+  active: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+  children: React.ReactNode;
+};
+
+/** One round toggle on the call's control row — Mute and Speaker. */
+function CallControl({
+  label,
+  accessibilityLabel,
+  active,
+  disabled = false,
+  onPress,
+  children,
+}: CallControlProps) {
+  return (
+    <View style={styles.callControlBlock}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={{ disabled, selected: active }}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => [styles.control, disabled && styles.controlDisabled, pressed && styles.pressed]}
+      >
+        {active && <BrandGradient radius={CALL_CONTROL_SIZE / 2} />}
+        {children}
+      </Pressable>
+      <Text style={styles.callControlLabel}>{label}</Text>
     </View>
   );
 }
@@ -952,5 +1344,108 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.8,
+  },
+  callStage: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.section,
+  },
+  callAvatarRing: {
+    width: CALL_AVATAR_SIZE,
+    height: CALL_AVATAR_SIZE,
+    marginBottom: spacing.md,
+    borderRadius: CALL_AVATAR_SIZE / 2,
+    borderWidth: 3,
+    borderColor: colors.gradient.from,
+    overflow: 'hidden',
+  },
+  callAvatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+  },
+  callInitial: {
+    ...typography.heading,
+    color: colors.text.primary,
+  },
+  callPeer: {
+    ...typography.titleSmall,
+    color: colors.text.primary,
+  },
+  callStatus: {
+    ...typography.subtitle,
+    color: colors.text.secondary,
+    textAlign: 'center',
+  },
+  callStatusError: {
+    color: colors.status.negative,
+  },
+  callTimer: {
+    ...typography.pageTitle,
+    marginTop: spacing.sm,
+    color: colors.text.primary,
+  },
+  callMeta: {
+    ...typography.caption,
+    color: colors.text.muted,
+  },
+  retry: {
+    height: 44,
+    minWidth: 160,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  retryLabel: {
+    ...typography.buttonSmall,
+    color: colors.text.inverse,
+  },
+  callHint: {
+    ...typography.footnoteSmall,
+    marginTop: spacing.sm,
+    color: colors.text.secondary,
+    textAlign: 'center',
+  },
+  callControls: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-evenly',
+    paddingTop: spacing.lg,
+    paddingHorizontal: spacing.section,
+  },
+  callControlBlock: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  control: {
+    width: CALL_CONTROL_SIZE,
+    height: CALL_CONTROL_SIZE,
+    borderRadius: CALL_CONTROL_SIZE / 2,
+    borderWidth: hairline,
+    borderColor: colors.border.subtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceMuted,
+  },
+  controlDisabled: {
+    opacity: 0.4,
+  },
+  hangUp: {
+    width: CALL_CONTROL_SIZE,
+    height: CALL_CONTROL_SIZE,
+    borderRadius: CALL_CONTROL_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.status.cancelMark,
+  },
+  callControlLabel: {
+    ...typography.captionMedium,
+    color: colors.text.secondary,
   },
 });

@@ -6,15 +6,18 @@ import { colors, hairline, radius, spacing, typography } from '../theme';
 const RING_SIZE = 80;
 const RING_WIDTH = 3.776;
 /**
- * How long the interstitial is held before moving on — a deliberate UX beat,
- * not a wait on anything real. There is no gateway to actually settle with
- * yet (see wallet.service.js on the backend): `onSettled` below is what
- * confirms the top-up, and it would resolve almost instantly without this.
+ * How long the interstitial is held before `onSettled` is called, for a
+ * caller that hands it one — a deliberate beat, not a wait on anything real.
+ *
+ * The app's own top-up flow does not: App.tsx starts the payment itself the
+ * moment "Pay" is pressed (services/payments.ts's `payTopUp`), and this screen
+ * is simply what is on show underneath the Razorpay checkout and while the
+ * server verifies the payment afterwards.
  */
 const DWELL_MS = 2000;
 
 type PaymentProcessingScreenProps = {
-  /** Confirms the top-up. A rejection is read as failure — see onFailed. */
+  /** Optional work to run once the beat is over. A rejection is read as failure — see onFailed. */
   onSettled?: () => Promise<void> | void;
   onFailed?: (message: string) => void;
 };

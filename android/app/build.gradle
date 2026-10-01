@@ -1,4 +1,6 @@
 apply plugin: "com.android.application"
+// Firebase (push notifications): matches google-services.json to the applicationId below.
+apply plugin: "com.google.gms.google-services"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
@@ -77,9 +79,16 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    /**
+     * Two different names on purpose. `namespace` is where the Kotlin sources
+     * and the R class live and stays as it was. `applicationId` is the app's
+     * identity on a device and in Firebase: it must be one of the packages
+     * google-services.json was issued for (`user.app`), or the Google Services
+     * plugin stops the build with "No matching client found".
+     */
     namespace "com.user_app"
     defaultConfig {
-        applicationId "com.user_app"
+        applicationId "user.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

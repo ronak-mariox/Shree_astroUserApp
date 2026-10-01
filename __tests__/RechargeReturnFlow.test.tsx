@@ -178,10 +178,7 @@ test('recharging from the intake form comes back to the same form, answers and p
   expect(textOf(tree)).toContain('Pay ₹40 Securely');
   await pressText(tree, 'Pay ₹40 Securely');
 
-  // The processing interstitial dwells ~2s before confirming the top-up.
-  await ReactTestRenderer.act(async () => {
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 2300));
-  });
+  // Pay runs the whole top-up (services/payments.ts) — this stub server has no gateway, so it settles at once.
   await flush();
   expect(textOf(tree)).toContain('Payment Successful!');
   expect(textOf(tree)).toContain('Continue with Pt. Rajesh Sharma');
@@ -233,9 +230,6 @@ test('an ordinary wallet top-up still ends on the usual Wallet / Home choices', 
   while (target && typeof target.props.onPress !== 'function') target = target.parent;
   await ReactTestRenderer.act(async () => {
     await target!.props.onPress();
-  });
-  await ReactTestRenderer.act(async () => {
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 2300));
   });
   await flush();
   expect(textOf(tree)).toContain('Payment Successful!');

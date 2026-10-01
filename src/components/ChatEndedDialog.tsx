@@ -22,7 +22,43 @@ type ChatEndedDialogProps = {
   /** Keeps talking to the same astrologer instead. */
   onResume: () => void;
   onDismiss: () => void;
+  /**
+   * Who closed the session (the server's `session:ended` payload). Left out
+   * for the seeker's own "Yes, End Chat" — the copy then offers to keep going.
+   * `astrologer` (or the `astrologer_disconnected` reason) says so in the
+   * title, since the seeker did nothing and would otherwise wonder what happened.
+   */
+  endedBy?: 'user' | 'astrologer' | 'system';
+  reason?: string;
+  astrologerName?: string;
+  channel?: 'chat' | 'call';
 };
+
+/** The title and body for how the session closed. */
+export function endedCopy({
+  endedBy,
+  reason,
+  astrologerName,
+  channel = 'chat',
+}: Pick<ChatEndedDialogProps, 'endedBy' | 'reason' | 'astrologerName' | 'channel'>): { title: string; body: string } {
+  const name = astrologerName || 'Your astrologer';
+  if (reason === 'astrologer_disconnected') {
+    return {
+      title: `${name} got disconnected`,
+      body: `The ${channel} ended because your astrologer lost their connection; the unfinished minute was refunded. Would you like to start a new chat with them?`,
+    };
+  }
+  if (endedBy === 'astrologer' || reason === 'astrologer_ended') {
+    return {
+      title: `${name} has ended the ${channel}`,
+      body: `Your astrologer has ended this consultation. Would you like to start a new chat with them?`,
+    };
+  }
+  return {
+    title: 'Chat Ended\nMore Guidance Awaits You',
+    body: 'Your astrologer is still here to guide you. Would you like to continue your chat now?',
+  };
+}
 
 /**
  * Offered once "Yes, End Chat" is confirmed: one more chance to keep talking
@@ -34,7 +70,12 @@ export function ChatEndedDialog({
   onEnd,
   onResume,
   onDismiss,
+  endedBy,
+  reason,
+  astrologerName,
+  channel,
 }: ChatEndedDialogProps) {
+  const copy = endedCopy({ endedBy, reason, astrologerName, channel });
   const insets = useSafeAreaInsets();
   const { px, isTablet } = useResponsive();
   const styles = useMemo(() => createStyles(px, isTablet), [px, isTablet]);
@@ -69,12 +110,9 @@ export function ChatEndedDialog({
             <ChatEndedIcon size={px(ICON_SIZE)} />
           </View>
 
-          <Text style={styles.title}>Chat Ended{'\n'}More Guidance Awaits You</Text>
+          <Text style={styles.title}>{copy.title}</Text>
 
-          <Text style={styles.body}>
-            Your astrologer is still here to guide you. Would you like to
-            continue your chat now?
-          </Text>
+          <Text style={styles.body}>{copy.body}</Text>
 
           <View style={styles.actions}>
             <Pressable

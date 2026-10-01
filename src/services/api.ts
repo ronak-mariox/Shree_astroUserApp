@@ -658,16 +658,72 @@ export async function fetchTransactions(filter: 'all' | 'added' | 'spent' = 'all
 }
 
 /**
- * Adding money, in two steps.
+ * Adding money: `startTopUp` → (the gateway's checkout) → `confirmTopUp`.
  *
- * There is no payment gateway wired up yet, so `startTopUp` returns an order the
- * app confirms straight away. When one is added, take its result to
- * `confirmTopUp` instead.
+ * Screens do not call these themselves — `payTopUp` in services/payments.ts
+ * runs the whole sequence, including the Razorpay checkout in the middle.
+ *
+ * Which gateway a top-up goes through is the server's decision, reported on
+ * the order `startTopUp` returns:
+ *
+ *  - `gateway: 'razorpay'` — the order carries what the checkout needs
+ *    (`razorpay.keyId`, `razorpay.orderId`, the amount in paise…). The wallet
+ *    is credited only once `confirmTopUp` hands back the three ids the
+ *    checkout produced and the server has verified their signature.
+ *  - `gateway: 'none'` — a server with no gateway configured (development).
+ *    There is nothing to pay through, so the order is confirmed straight away.
  */
+
+/** What the Razorpay checkout is opened with — every value chosen by the server. */
+export type RazorpayOrder = {
+  /** The public key id (`rzp_test_…` in test mode). Never the secret. */
+  keyId: string;
+  orderId: string;
+  /** In paise. */
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  prefill?: { name?: string; contact?: string; email?: string };
+};
+
+/** POST /wallet/topup — the pending row, and how it is to be paid. */
+export type TopUpOrder = {
+  transactionId: string;
+  reference: string;
+  orderId: string;
+  /** In rupees. */
+  amount: number;
+  couponCode?: string | null;
+  bonusAmount?: number;
+  gateway?: 'razorpay' | 'none';
+  /** Present when `gateway` is 'razorpay'. */
+  razorpay?: RazorpayOrder;
+};
+
+/** What a successful Razorpay checkout hands back; the server verifies the signature over the other two. */
+export type RazorpayPayment = {
+  razorpayPaymentId: string;
+  razorpayOrderId: string;
+  razorpaySignature: string;
+};
+
+/** The settled wallet transaction `confirmTopUp` returns. */
+export type TopUpTransaction = {
+  _id?: string;
+  id?: string;
+  reference?: string;
+  amount?: number;
+  balanceAfter?: number;
+  status?: string;
+  method?: string;
+  payment?: { gateway?: string; orderId?: string; paymentId?: string; method?: string };
+};
+
 /** Amounts `startTopUp` has quoted but not yet settled, keyed by transactionId. */
 const dummyPendingTopUps = new Map<string, number>();
 
-export async function startTopUp(amount: number) {
+export async function startTopUp(amount: number, couponCode?: string): Promise<TopUpOrder> {
   if (USE_DUMMY_WALLET) {
     const transactionId = `pending-${Date.now()}`;
     dummyPendingTopUps.set(transactionId, amount);
@@ -676,18 +732,29 @@ export async function startTopUp(amount: number) {
       reference: `TXN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       orderId: `order-${transactionId}`,
       amount,
+      /** The fixtures have nothing to pay through. */
+      gateway: 'none',
     };
   }
-  const { data } = await client.post('/wallet/topup', { amount });
-  return data as { transactionId: string; reference: string; orderId: string; amount: number };
+  const { data } = await client.post('/wallet/topup', couponCode ? { amount, couponCode } : { amount });
+  return data as TopUpOrder;
 }
 
 /**
- * `method` is cosmetic today — there is no gateway to report one back — but
- * it is recorded on the transaction so the receipt shows what the user
- * picked, and so nothing has to change here once a real gateway does.
+ * Settles a pending top-up.
+ *
+ * For a Razorpay order, `payment` is the three ids the checkout returned —
+ * the server refuses to credit without a signature that verifies, and records
+ * the method Razorpay reports, so none is sent from here.
+ *
+ * For `gateway: 'none'` it keeps the shape it always had: an optional payment
+ * id, and the method the seeker picked, recorded for the receipt.
  */
-export async function confirmTopUp(transactionId: string, paymentId?: string, method?: string) {
+export async function confirmTopUp(
+  transactionId: string,
+  payment?: string | RazorpayPayment,
+  method?: string,
+): Promise<TopUpTransaction> {
   if (USE_DUMMY_WALLET) {
     const amount = dummyPendingTopUps.get(transactionId) ?? 0;
     dummyPendingTopUps.delete(transactionId);
@@ -717,8 +784,30 @@ export async function confirmTopUp(transactionId: string, paymentId?: string, me
       method,
     };
   }
-  const { data } = await client.post('/wallet/topup/confirm', { transactionId, paymentId, method });
+  const body =
+    typeof payment === 'object' && payment !== null
+      ? {
+          transactionId,
+          razorpayPaymentId: payment.razorpayPaymentId,
+          razorpayOrderId: payment.razorpayOrderId,
+          razorpaySignature: payment.razorpaySignature,
+        }
+      : { transactionId, paymentId: payment, method };
+  const { data } = await client.post('/wallet/topup/confirm', body);
   return data.transaction;
+}
+
+/**
+ * Closes a pending top-up that will not be paid — the checkout was dismissed,
+ * or the payment failed. The server marks the row `failed` with `reason`; it
+ * is safe to repeat, and leaves an already-successful row alone.
+ */
+export async function cancelTopUp(transactionId: string, reason?: string): Promise<void> {
+  if (USE_DUMMY_WALLET) {
+    dummyPendingTopUps.delete(transactionId);
+    return;
+  }
+  await client.post('/wallet/topup/cancel', reason ? { transactionId, reason } : { transactionId });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -895,10 +984,54 @@ export async function getChatState(chatId: string) {
   };
 }
 
+/**
+ * What GET /chats/:chatId/call-token hands back: everything the Agora engine
+ * needs to join this call session's channel as this side. The uids are fixed
+ * per role (seeker 1001, astrologer 2001) so each side knows the other's.
+ */
+export type CallToken = {
+  provider: 'agora';
+  appId: string;
+  channelName: string;
+  uid: number;
+  peerUid: number;
+  role: 'user' | 'astrologer';
+  token: string;
+  /** ISO — when the token stops working; the engine announces it ~30s before, and a fresh one is fetched then. */
+  expiresAt: string;
+  ttlSeconds: number;
+};
+
+/**
+ * A token to join a call session's audio channel. The server refuses for a
+ * chat session (`not_a_call`), one that isn't active (`not_active`), and when
+ * calls aren't configured on it (`calls_unconfigured`, 503).
+ */
+export async function fetchCallToken(chatId: string): Promise<CallToken> {
+  if (USE_DUMMY_CONSULTATIONS) {
+    /** No app id — the call panel says "Calls need a live server" rather than trying to join. */
+    return {
+      provider: 'agora',
+      appId: '',
+      channelName: chatId,
+      uid: 1001,
+      peerUid: 2001,
+      role: 'user',
+      token: '',
+      expiresAt: new Date(Date.now() + 7200 * 1000).toISOString(),
+      ttlSeconds: 7200,
+    };
+  }
+  const { data } = await client.get(`/chats/${chatId}/call-token`);
+  return data as CallToken;
+}
+
 /** The consultation history screen. `photo` is a raw URL (or undefined) — screens wrap it with utils/images.ts's `portraitOf`, the same as every other astrologer avatar. */
 export type ConsultationRow = {
   id: string;
   astrologer: string;
+  /** Who it was with, when the server says — what a session reopened from a notification needs to offer "start a new chat" with the same astrologer. */
+  astrologerId?: string;
   photo?: string;
   topic: string;
   timestamp: string;
@@ -930,6 +1063,7 @@ export async function fetchConsultations(status?: string): Promise<ConsultationR
   return (data.items ?? []).map((row: any) => ({
     id: row.id,
     astrologer: row.with?.name ?? 'Astrologer',
+    astrologerId: row.with?.id ? String(row.with.id) : undefined,
     photo: row.with?.photo,
     topic: titleCase(row.topic ?? 'general'),
     timestamp: dateTime(row.endedAt ?? row.createdAt),
@@ -1141,6 +1275,60 @@ export async function markNotificationsRead(notificationId?: string) {
   }
   const { data } = await client.post('/notifications/read', { notificationId });
   return data as { updated: number; unread: number };
+}
+
+/** Which kind of device a push token belongs to — the server's own enum. */
+export type DevicePlatform = 'android' | 'ios' | 'web';
+
+/**
+ * Whether there is a real account for a push token to be filed under. On any
+ * of the fixture switches there is not: no server knows this "user", so there
+ * is nothing to register a device against.
+ */
+const NO_DEVICE_REGISTRY = USE_DUMMY_DATA || USE_DUMMY_AUTH || USE_DUMMY_NOTIFICATIONS;
+
+/**
+ * Files this device's FCM token under the signed-in account, so the server's
+ * notifications reach its tray (services/push.ts is the only caller). Safe to
+ * repeat: the server keys on the token, refreshes it, and moves it here from
+ * whichever account held it before.
+ */
+export async function registerDevice(fcmToken: string, platform: DevicePlatform, appVersion?: string) {
+  if (NO_DEVICE_REGISTRY) {
+    return { ok: true, devices: 0 };
+  }
+  const { data } = await client.post('/devices', {
+    fcmToken,
+    platform,
+    ...(appVersion ? { appVersion } : null),
+  });
+  return data as { ok: boolean; devices: number };
+}
+
+/** Why a push did not go out to one device — the server's own words, for whoever is debugging a silent phone. */
+export type PushFailureReason = 'not_configured' | 'no_token' | 'invalid_token' | 'provider_error' | 'push_disabled';
+
+/**
+ * Asks the server to send this account a "Test notification" and reports what
+ * happened per registered device, so "nothing arrived" comes with a reason.
+ * No screen calls it yet — it is here for a debug menu, or a breakpoint.
+ */
+export async function sendTestPush() {
+  if (NO_DEVICE_REGISTRY) {
+    return { ok: true, devices: 0, push: [] as Array<{ sent: boolean; reason?: PushFailureReason }> };
+  }
+  const { data } = await client.post('/devices/test');
+  return data as { ok: boolean; devices: number; push: Array<{ sent: boolean; reason?: PushFailureReason }> };
+}
+
+/** Takes the token back off the account — on logout, so the next person on this phone does not get this one's pushes. */
+export async function unregisterDevice(fcmToken: string) {
+  if (NO_DEVICE_REGISTRY) {
+    return { ok: true };
+  }
+  /** A DELETE carries its body in axios's `data` option. */
+  const { data } = await client.delete('/devices', { data: { fcmToken } });
+  return data as { ok: boolean };
 }
 
 export async function raiseTicket(issueType: string, description: string, chatId?: string) {

@@ -118,6 +118,8 @@ export function joinChatRoom(
 ): Promise<{
   chatId: string;
   role: 'user' | 'astrologer';
+  /** 'chat' or 'call' — what kind of session this room is; the screen picks its layout from it. */
+  channel?: 'chat' | 'call';
   status: string;
   /** Whether billing is paused for insufficient balance RIGHT NOW — the true current state, not just "was a pause event ever seen." A live chat:low_balance push can be missed by a socket that was briefly disconnected; this is how a (re)join recovers the real answer. */
   paused: boolean;
@@ -263,6 +265,8 @@ export function subscribeToChat(
      */
     onRejoinState?: (payload: {
       status: string;
+      /** 'chat' or 'call', when the server says. */
+      channel?: 'chat' | 'call';
       paused: boolean;
       pausedSince: string | null;
       /** Package sessions only. */
@@ -291,6 +295,7 @@ export function subscribeToChat(
       .then(state => {
         handlers.onRejoinState?.({
           status: state.status,
+          channel: state.channel,
           paused: state.paused,
           pausedSince: state.pausedSince,
           package: state.package,

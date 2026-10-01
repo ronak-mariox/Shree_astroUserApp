@@ -8,3 +8,14 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# Razorpay checkout (react-native-razorpay) — from the package's README. The
+# checkout is driven through a JavaScript interface and reflective callbacks,
+# so a minified release build must keep its classes and the onPayment* methods.
+-keepattributes *Annotation*
+-dontwarn com.razorpay.**
+-keep class com.razorpay.** {*;}
+-optimizations !method/inlining/
+-keepclasseswithmembers class * {
+  public void onPayment*(...);
+}

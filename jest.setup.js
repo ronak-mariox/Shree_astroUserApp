@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * The screen tests run against stubs, not a server.
  *
@@ -45,6 +46,37 @@ jest.mock('./src/services/auth', () => {
     signOut: jest.fn(async () => {}),
   };
 });
+
+/**
+ * No native checkout in a test run. This one always pays: it resolves with the
+ * three ids a real checkout hands back for the order it was opened with. A test
+ * that wants a dismissal or a failure makes `open` reject for that call.
+ */
+jest.mock('react-native-razorpay', () => ({
+  __esModule: true,
+  default: {
+    open: jest.fn(async options => ({
+      razorpay_payment_id: 'pay_test_1',
+      razorpay_order_id: options.order_id,
+      razorpay_signature: 'sig_test_1',
+    })),
+  },
+}));
+
+/**
+ * No Firebase in a test run. `@react-native-firebase/app` is only ever reached
+ * through messaging, so a bare stub is enough for it.
+ */
+jest.mock('@react-native-firebase/app', () => ({
+  __esModule: true,
+  getApp: jest.fn(() => ({ name: '[DEFAULT]' })),
+}));
+
+/**
+ * A device that grants permission and has a token; the stub (and how a test
+ * delivers a push through it) lives beside the tests.
+ */
+jest.mock('@react-native-firebase/messaging', () => require('./__tests__/helpers/firebaseMessagingMock'));
 
 /** The signed-in screens read from here; the fixtures live beside the tests. */
 jest.mock('./src/services/api', () => require('./__tests__/helpers/apiMock'));
