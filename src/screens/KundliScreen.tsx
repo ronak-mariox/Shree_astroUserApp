@@ -52,6 +52,8 @@ type KundliScreenProps = {
   birthDetails?: ReadonlyArray<{ label: string; value: string }>;
   /** True once a kundli already exists for this account — the CTA reads "View" instead of "Generate". */
   hasKundli?: boolean;
+  /** True while the kundli is being generated straight from the saved details — the CTA shows progress and cannot be pressed twice. */
+  generating?: boolean;
 };
 
 /**
@@ -66,6 +68,7 @@ export function KundliScreen({
   onSelectTab,
   birthDetails,
   hasKundli = false,
+  generating = false,
 }: KundliScreenProps) {
   const insets = useSafeAreaInsets();
   /** Same four labels either way, so the card does not jump when the values arrive. */
@@ -124,9 +127,10 @@ export function KundliScreen({
           </View>
 
           <PrimaryButton
-            label={hasKundli ? 'View Kundli' : 'Generate Kundli'}
+            label={hasKundli ? 'View Kundli' : generating ? 'Generating…' : 'Generate Kundli'}
             labelStyle={typography.buttonLarge}
             style={styles.cta}
+            disabled={generating}
             onPress={onGenerateKundli}
           />
         </View>

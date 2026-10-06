@@ -17,6 +17,7 @@ import {
   cancelChat,
   connectLiveUpdates,
   createBirthProfile,
+  searchPlaces,
   fetchCurrentKundli,
   disconnectLiveUpdates,
   fetchConsultations,
@@ -889,6 +890,53 @@ function App() {
   };
 
   /**
+   * The Kundli tab's "Generate Kundli": when the account already has a full
+   * date, time and place of birth on file, the chart is generated straight
+   * from them — no form. The saved place is only text, so it is matched
+   * against the place search (the same search the form uses) to get the id
+   * the server needs. Anything missing or unmatched falls back to the Birth
+   * Details form, as before, so the user can fix it there.
+   */
+  const [generatingFromSaved, setGeneratingFromSaved] = useState(false);
+  const openBirthDetailsForm = () => {
+    setBirthDetailsDraft(undefined);
+    setBirthDetailsOrigin('kundli');
+    setRoute('birthDetails');
+  };
+  const generateFromSavedDetails = async () => {
+    const saved = profileBirthDetails;
+    if (generatingFromSaved) {
+      return;
+    }
+    if (!saved?.dateOfBirth || !saved.timeOfBirth || !saved.placeOfBirth) {
+      openBirthDetailsForm();
+      return;
+    }
+    setGeneratingFromSaved(true);
+    try {
+      const wanted = saved.placeOfBirth.trim().toLowerCase();
+      const city = saved.placeOfBirth.split(',')[0].trim();
+      const suggestions = await searchPlaces(city.length >= 3 ? city : saved.placeOfBirth);
+      const match =
+        suggestions.find(item => item.formatted.trim().toLowerCase() === wanted) ?? suggestions[0];
+      if (!match) {
+        openBirthDetailsForm();
+        return;
+      }
+      await generateKundli({ ...saved, placeId: match.id });
+    } catch (error) {
+      showDialog({
+        title: 'Could not generate your kundli',
+        tone: 'error',
+        message:
+          error instanceof ApiError ? error.message : 'Something went wrong. Please try again in a moment.',
+      });
+    } finally {
+      setGeneratingFromSaved(false);
+    }
+  };
+
+  /**
    * Confirms which chart belongs to the birth details on file. A changed
    * detail means no stored chart matches, so the tab shows "Generate Kundli"
    * again; generating then casts a new one and caches it server-side.
@@ -1602,6 +1650,7 @@ function App() {
             { label: 'Place', value: profile?.birthDetails?.place?.formatted || '—' },
           ]}
           hasKundli={Boolean(kundliProfileId)}
+          generating={generatingFromSaved}
           onEditBirthDetails={() => {
             /**
              * `birthDetailsDraft` remembers an unsaved edit from the sign-up
@@ -1623,9 +1672,7 @@ function App() {
               setRoute('kundliResult');
               return;
             }
-            setBirthDetailsDraft(undefined);
-            setBirthDetailsOrigin('kundli');
-            setRoute('birthDetails');
+            generateFromSavedDetails();
           }}
         />
       )}
