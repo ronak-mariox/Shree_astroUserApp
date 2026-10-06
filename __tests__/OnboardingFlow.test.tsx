@@ -135,8 +135,14 @@ test('otp screen moves from the inert state to the sent state', async () => {
   await ReactTestRenderer.act(() => {
     number.props.onChangeText('12345');
   });
-  expect(JSON.stringify(tree.toJSON())).toContain('Enter a 10-digit mobile number');
+  // Not while the first digits are going in…
+  expect(JSON.stringify(tree.toJSON())).not.toContain('Enter a 10-digit mobile number');
   expect(buttons()[0].props.disabled).toBe(true);
+  // …but once the field is left.
+  await ReactTestRenderer.act(() => {
+    number.props.onBlur();
+  });
+  expect(JSON.stringify(tree.toJSON())).toContain('Enter a 10-digit mobile number');
 
   await ReactTestRenderer.act(() => {
     number.props.onChangeText('9876543210');
@@ -427,13 +433,17 @@ test('profile creation stops accepting digits well past a real phone number', as
   await ReactTestRenderer.act(() => phoneField().props.onChangeText('9876543210'));
   expect(phoneField().props.value).toBe('9876543210');
 
-  // The +91 country code is also accepted — twelve digits total, same as validatePhone itself allows.
+  // A pasted +91 country code, spaces or a leading 0 are stripped down to the ten local digits.
   await ReactTestRenderer.act(() => phoneField().props.onChangeText('919876543210'));
-  expect(phoneField().props.value).toBe('919876543210');
+  expect(phoneField().props.value).toBe('9876543210');
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('+91 98765 43210'));
+  expect(phoneField().props.value).toBe('9876543210');
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('098765 43210'));
+  expect(phoneField().props.value).toBe('9876543210');
 
-  // A thirteenth digit is refused outright — the field does not just wait for Continue to say so.
-  await ReactTestRenderer.act(() => phoneField().props.onChangeText('9198765432109'));
-  expect(phoneField().props.value).toBe('919876543210');
+  // An eleventh typed digit is refused outright — the field does not just wait for Continue to say so.
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('98765432109'));
+  expect(phoneField().props.value).toBe('9876543210');
 });
 
 test('profile creation carries a picked photo through to Continue', async () => {
@@ -1086,29 +1096,28 @@ test('low balance shows a banner (not an alert), and Recharge opens the popup th
   expect(text).toContain('₹ 20');
   // The ₹500 tile is selected by default (Figma's "Most Popular").
   expect(text).toContain('★ Most Popular');
-  expect(text).toContain("You'll get");
-  expect(text).toContain('₹ 750');
-  expect(text).toContain('on the recharge of');
+  // What is charged and what is credited are the same sum — no bonus, no GST line.
+  expect(text).toContain('will be added to your wallet');
   expect(text).toContain('Total Amount');
-  expect(text).toContain('₹ 590');
+  expect(text).toContain('₹ 500');
+  expect(text).not.toContain('Extra');
+  expect(text).not.toContain('GST');
+  expect(text).not.toContain('₹ 750');
+  expect(text).not.toContain('₹ 590');
 
-  // A cheaper tile recomputes the whole breakdown.
+  // A cheaper tile recomputes the total.
   await ReactTestRenderer.act(() => {
-    findPressable(tree, '₹100, get ₹50 extra').props.onPress();
+    findPressable(tree, '₹100').props.onPress();
   });
   text = textOf(tree);
-  expect(text).toContain('You\'ll get');
-  expect(text).toContain('₹ 150');
-  expect(text).toContain('on the recharge of');
+  expect(text).toContain('will be added to your wallet');
   expect(text).toContain('₹ 100');
-  expect(text).toContain('GST (18%)');
-  expect(text).toContain('₹ 18');
-  expect(text).toContain('₹ 118');
+  expect(text).not.toContain('₹ 118');
 
   await ReactTestRenderer.act(async () => {
     await findPressable(tree, 'Pay Now').props.onPress();
   });
-  // services/api.ts's startTopUp/confirmTopUp mocks resolve immediately — the popup and banner both close once the credit lands.
+  // The stub server has no gateway, so payTopUp (services/payments.ts) settles at once — the popup and banner both close once the credit lands.
   expect(textOf(tree)).not.toContain('Recharge Now');
   expect(textOf(tree)).not.toContain('Low Balance:');
 
@@ -1583,8 +1592,8 @@ test('notifications count unread and clear on mark all read', async () => {
   expect(textOf(tree)).toContain('2 unread');
   expect(textOf(tree)).toContain('Mercury goes Direct today!');
 
-  // The back button has no handler wired in this test, so this is the only
-  // pressable with an onPress.
+  // The back button has no handler wired in this test, so this is the first
+  // pressable with an onPress — the unread rows under it are buttons too.
   const markAll = tree.root.findAll(
     n =>
       typeof n.type !== 'string' &&

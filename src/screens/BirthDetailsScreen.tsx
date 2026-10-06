@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -31,13 +30,18 @@ import {
   YEAR_COLUMN,
   formatBirthTime,
 } from '../data/chatIntake';
+import { useFormValidation } from '../hooks/useFormValidation';
 import {
-  isFormValid,
+  PLACE_MAX_LENGTH,
+  serverFieldErrors,
   validateDateOfBirth,
   validatePlace,
   validateTimeOfBirth,
   type FieldError,
 } from '../utils/validation';
+
+type Field = 'dateOfBirth' | 'timeOfBirth' | 'placeOfBirth';
+const FIELDS: readonly Field[] = ['dateOfBirth', 'timeOfBirth', 'placeOfBirth'];
 import {
   colors,
   designFrame,
@@ -168,8 +172,11 @@ export function BirthDetailsScreen({
   const [placeId, setPlaceId] = useState<string | undefined>(initialDetails?.placeId);
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
   const [placeSearching, setPlaceSearching] = useState(false);
-  /** Errors stay hidden until an action is pressed, then follow every keystroke. */
-  const [submitted, setSubmitted] = useState(false);
+  /**
+   * Generate Kundli geocodes through the place search, so it — unlike Save —
+   * needs the place picked from the list; set once that button is pressed.
+   */
+  const [needsPickedPlace, setNeedsPickedPlace] = useState(false);
   /** True while the account is being created, so it cannot be sent twice. */
   const [saving, setSaving] = useState(false);
   /** True while the kundli is being generated. */
@@ -208,13 +215,29 @@ export function BirthDetailsScreen({
   const details = { dateOfBirth, timeOfBirth, placeOfBirth, placeId };
   const placeholder = '—';
 
-  const errors: Record<string, FieldError> = {
+  const errors: Record<Field, FieldError> = {
     dateOfBirth: validateDateOfBirth(dateOfBirth),
     timeOfBirth: validateTimeOfBirth(timeOfBirth),
-    placeOfBirth: validatePlace(placeOfBirth),
+    placeOfBirth: validatePlace(placeOfBirth, 'Place of birth', {
+      selected: needsPickedPlace ? Boolean(placeId) : undefined,
+    }),
   };
-  const shown = (field: keyof typeof errors) =>
-    submitted ? errors[field] : undefined;
+  /** Errors show once a field is left or an action is pressed, then follow every change. */
+  const form = useFormValidation<Field>({ dateOfBirth, timeOfBirth, placeOfBirth }, errors);
+  const shown = form.error;
+
+  /** A 422 from the server lands under the field it is about; anything else prints above the buttons. */
+  const reportFailure = (error: unknown) => {
+    const fields = serverFieldErrors(error, FIELDS);
+    form.setServerErrors(fields);
+    setActionError(
+      Object.keys(fields).length > 0
+        ? undefined
+        : error instanceof ApiError
+          ? error.message
+          : 'Something went wrong. Please try again.',
+    );
+  };
 
   const onChangePlace = (text: string) => {
     setPlaceOfBirth(text);
@@ -269,9 +292,13 @@ export function BirthDetailsScreen({
    * waits on the server and keeps the user here if it is refused.
    */
   const handleSave = async () => {
-    setSubmitted(true);
     setActionError(undefined);
-    if (!isFormValid(errors) || saving) {
+    setNeedsPickedPlace(false);
+    if (saving) {
+      return;
+    }
+    // Save stores the place as typed, so the "pick from the list" rule is not part of this check.
+    if (!form.submit({ ...errors, placeOfBirth: validatePlace(placeOfBirth) })) {
       return;
     }
 
@@ -279,11 +306,7 @@ export function BirthDetailsScreen({
     try {
       await onSave?.(details);
     } catch (error) {
-      setActionError(
-        error instanceof ApiError
-          ? error.message
-          : 'Something went wrong. Please try again.',
-      );
+      reportFailure(error);
     } finally {
       setSaving(false);
     }
@@ -295,13 +318,14 @@ export function BirthDetailsScreen({
    * geocode rather than whatever was typed.
    */
   const handleGenerateKundli = async () => {
-    setSubmitted(true);
     setActionError(undefined);
-    if (!isFormValid(errors) || generating || saving) {
+    setNeedsPickedPlace(true);
+    if (generating || saving) {
       return;
     }
-    if (!placeId) {
-      setActionError('Select your birth place from the list.');
+    // `errors` is from before the rule above switched on, so the picked-place check is made here.
+    const placeError = validatePlace(placeOfBirth, 'Place of birth', { selected: Boolean(placeId) });
+    if (!form.submit({ ...errors, placeOfBirth: placeError })) {
       return;
     }
 
@@ -309,11 +333,7 @@ export function BirthDetailsScreen({
     try {
       await onGenerateKundli?.(details);
     } catch (error) {
-      setActionError(
-        error instanceof ApiError
-          ? error.message
-          : 'Something went wrong. Please try again.',
-      );
+      reportFailure(error);
     } finally {
       setGenerating(false);
     }
@@ -325,7 +345,7 @@ export function BirthDetailsScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <View
           style={[
@@ -354,6 +374,7 @@ export function BirthDetailsScreen({
         </View>
 
         <ScrollView
+          ref={form.scrollRef}
           style={styles.body}
           contentContainerStyle={[
             styles.bodyContent,
@@ -369,11 +390,12 @@ export function BirthDetailsScreen({
             </Text>
           </View>
 
-          <View style={styles.form}>
+          <View style={styles.form} onLayout={form.locateContainer}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Date of Birth"
               onPress={() => setDatePickerOpen(true)}
+              {...form.locate('dateOfBirth')}
             >
               <View pointerEvents="none">
                 <FormField
@@ -390,6 +412,7 @@ export function BirthDetailsScreen({
               accessibilityRole="button"
               accessibilityLabel="Time of Birth"
               onPress={() => setTimePickerOpen(true)}
+              {...form.locate('timeOfBirth')}
             >
               <View pointerEvents="none">
                 <FormField
@@ -403,12 +426,19 @@ export function BirthDetailsScreen({
                 />
               </View>
             </Pressable>
-            <View style={styles.placeField}>
+            <View style={styles.placeField} {...form.locate('placeOfBirth')}>
               <FormField
                 label="Place of Birth"
                 labelIcon={<LocationPinIcon size={14} />}
                 value={placeOfBirth}
                 onChangeText={onChangePlace}
+                onBlur={() => form.touch('placeOfBirth')}
+                inputRef={form.inputRef('placeOfBirth')}
+                autoCapitalize="words"
+                autoCorrect={false}
+                autoComplete="off"
+                maxLength={PLACE_MAX_LENGTH}
+                returnKeyType="search"
                 placeholder="Mumbai, Maharashtra"
                 hint={placeSearching ? 'Searching…' : undefined}
                 error={shown('placeOfBirth')}
@@ -496,10 +526,14 @@ export function BirthDetailsScreen({
           { key: 'year', values: YEAR_COLUMN },
         ]}
         value={parseDob(dateOfBirth)}
-        onCancel={() => setDatePickerOpen(false)}
+        onCancel={() => {
+          setDatePickerOpen(false);
+          form.touch('dateOfBirth');
+        }}
         onSubmit={chosen => {
           setDateOfBirth(formatDob(chosen.day, chosen.month, chosen.year));
           setDatePickerOpen(false);
+          form.touch('dateOfBirth');
         }}
       />
 
@@ -512,10 +546,14 @@ export function BirthDetailsScreen({
           { key: 'meridiem', values: MERIDIEM_COLUMN, narrow: true },
         ]}
         value={parseTime(timeOfBirth)}
-        onCancel={() => setTimePickerOpen(false)}
+        onCancel={() => {
+          setTimePickerOpen(false);
+          form.touch('timeOfBirth');
+        }}
         onSubmit={chosen => {
           setTimeOfBirth(formatBirthTime(chosen.hour, chosen.minute, chosen.meridiem));
           setTimePickerOpen(false);
+          form.touch('timeOfBirth');
         }}
       />
     </View>

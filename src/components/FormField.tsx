@@ -4,6 +4,7 @@ import {
   Text,
   TextInput,
   View,
+  type LayoutChangeEvent,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
@@ -23,6 +24,10 @@ type FormFieldProps = TextInputProps & {
   /** What is wrong with the value — replaces the hint and reddens the outline. */
   error?: string;
   containerStyle?: StyleProp<ViewStyle>;
+  /** Layout of the whole field (label, input and message) — how a form finds it to scroll to. */
+  onContainerLayout?: (event: LayoutChangeEvent) => void;
+  /** The text input itself, so a form can focus it. */
+  inputRef?: React.Ref<React.ComponentRef<typeof TextInput>>;
 };
 
 /**
@@ -35,11 +40,13 @@ export function FormField({
   hint,
   error,
   containerStyle,
+  onContainerLayout,
+  inputRef,
   style,
   ...inputProps
 }: FormFieldProps) {
   return (
-    <View style={containerStyle}>
+    <View style={containerStyle} onLayout={onContainerLayout}>
       <View style={styles.labelRow}>
         {typeof labelIcon === 'string' ? (
           <Text style={styles.label}>{labelIcon}</Text>
@@ -50,6 +57,7 @@ export function FormField({
       </View>
 
       <TextInput
+        ref={inputRef}
         accessibilityLabel={label}
         // Read out with the field, so the message is not sight-only.
         accessibilityHint={error ?? hint}

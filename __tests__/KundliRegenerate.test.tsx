@@ -279,3 +279,60 @@ test('a failed save keeps the seeker on the form (nothing silently lost)', async
   ).rejects.toThrow('Network unreachable');
   expect(tree.root.findAllByType(BirthDetailsScreen)).toHaveLength(1);
 });
+
+test('details already on file: "Generate Kundli" generates straight away, no form', async () => {
+  mockApi.fetchCurrentKundli.mockResolvedValue({ found: false, reason: 'not_generated' });
+  jest.spyOn(api, 'fetchProfile').mockResolvedValue(profileWith('06:30') as never);
+  const search = jest.spyOn(api, 'searchPlaces').mockResolvedValue([
+    { id: 'place:pune#0', formatted: 'Pune, Maharashtra', city: 'Pune', country: 'IN' },
+    { id: 'place:mumbai#1', formatted: 'Mumbai, Maharashtra', city: 'Mumbai', country: 'IN' },
+  ] as never);
+
+  const kundli = await openKundliTab();
+  await ReactTestRenderer.act(async () => {
+    await kundli.props.onGenerateKundli();
+  });
+  await flush();
+
+  /** The saved place's text is matched to its search result for the id the server needs. */
+  expect(search).toHaveBeenCalledWith('Mumbai');
+  expect(mockApi.createBirthProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ dateOfBirth: '15/08/1995', placeId: 'place:mumbai#1' }),
+  );
+  expect(tree.root.findAllByType(BirthDetailsScreen)).toHaveLength(0);
+  expect(tree.root.findByType(KundliResultScreen).props.profileId).toBe('profile-new');
+});
+
+test('details on file but the place cannot be found: falls back to the form', async () => {
+  mockApi.fetchCurrentKundli.mockResolvedValue({ found: false, reason: 'not_generated' });
+  jest.spyOn(api, 'fetchProfile').mockResolvedValue(profileWith('06:30') as never);
+  jest.spyOn(api, 'searchPlaces').mockResolvedValue([] as never);
+
+  const kundli = await openKundliTab();
+  await ReactTestRenderer.act(async () => {
+    await kundli.props.onGenerateKundli();
+  });
+  await flush();
+
+  expect(mockApi.createBirthProfile).not.toHaveBeenCalled();
+  expect(tree.root.findAllByType(BirthDetailsScreen)).toHaveLength(1);
+});
+
+test('generation fails: the user is told, and stays on the tab', async () => {
+  mockApi.fetchCurrentKundli.mockResolvedValue({ found: false, reason: 'not_generated' });
+  jest.spyOn(api, 'fetchProfile').mockResolvedValue(profileWith('06:30') as never);
+  jest.spyOn(api, 'searchPlaces').mockResolvedValue([
+    { id: 'place:mumbai#0', formatted: 'Mumbai, Maharashtra', city: 'Mumbai', country: 'IN' },
+  ] as never);
+  mockApi.createBirthProfile.mockRejectedValue(new Error('network down'));
+
+  const kundli = await openKundliTab();
+  await ReactTestRenderer.act(async () => {
+    await kundli.props.onGenerateKundli();
+  });
+  await flush();
+
+  expect(JSON.stringify(tree.toJSON())).toContain('Could not generate your kundli');
+  expect(tree.root.findByType(KundliScreen).props.generating).toBe(false);
+  expect(tree.root.findAllByType(KundliResultScreen)).toHaveLength(0);
+});

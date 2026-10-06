@@ -20,7 +20,12 @@ import { CheckIcon } from '../components/icons/CheckIcon';
 import { SmartphoneLargeIcon } from '../components/icons/SmartphoneLargeIcon';
 import { useOtpLogin } from '../hooks/useOtpLogin';
 import { loginPhoneOf, type AuthSession } from '../services/auth';
-import { validateCode, validatePhone } from '../utils/validation';
+import {
+  MOBILE_DIGITS,
+  sanitizePhoneInput,
+  validateCode,
+  validatePhone,
+} from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -70,10 +75,20 @@ export function OtpLoginScreen({
   const insets = useSafeAreaInsets();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otp, setOtp] = useState('');
+  /** The number field has been left once — its message shows from then on. */
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const login = useOtpLogin(onVerified);
 
   const fullNumber = `${DIAL_CODE} ${phoneNumber}`;
   const phoneError = validatePhone(phoneNumber);
+  /**
+   * Not while the first digits are going in: once the field is left, or once
+   * all ten are typed and they still do not make a mobile number. A server
+   * refusal of the number shows the same way.
+   */
+  const shownPhoneError =
+    login.fieldErrors.phone ??
+    (phoneTouched || phoneNumber.length >= MOBILE_DIGITS ? phoneError : undefined);
   const otpError = validateCode(otp, OTP_LENGTH);
   const otpSent = login.sent !== undefined;
   const busy = login.sending || login.verifying;
@@ -107,7 +122,7 @@ export function OtpLoginScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <View
           style={[
@@ -154,29 +169,36 @@ export function OtpLoginScreen({
               <TextInput
                 value={phoneNumber}
                 onChangeText={text => {
-                  setPhoneNumber(text.replace(/\D/g, ''));
+                  // "+91 98765 43210" or "098765 43210" pasted in keeps just the ten local digits.
+                  setPhoneNumber(sanitizePhoneInput(text));
                   /** A different number invalidates the code sent to the old one. */
                   setOtp('');
                   login.reset();
                 }}
                 placeholder="98765 43210"
                 placeholderTextColor={colors.text.placeholder}
-                keyboardType="phone-pad"
+                onBlur={() => {
+                  // Nothing typed is not a mistake yet — only a left-behind attempt is.
+                  if (phoneNumber.length > 0) setPhoneTouched(true);
+                }}
+                onSubmitEditing={handleSendOtp}
+                keyboardType="number-pad"
                 textContentType="telephoneNumber"
-                maxLength={10}
+                autoComplete="tel"
+                returnKeyType="send"
+                // Room for a pasted "+91 98765 43210"; the handler keeps only the ten digits.
+                maxLength={16}
                 accessibilityLabel="Mobile number"
                 style={[
                   styles.phoneInput,
                   // Only complain once there is something to complain about.
-                  phoneNumber.length > 0 &&
-                    phoneError !== undefined &&
-                    styles.inputInvalid,
+                  shownPhoneError !== undefined && styles.inputInvalid,
                 ]}
               />
             </View>
 
-            {phoneNumber.length > 0 && phoneError !== undefined && (
-              <Text style={styles.fieldError}>{phoneError}</Text>
+            {shownPhoneError !== undefined && (
+              <Text style={styles.fieldError}>{shownPhoneError}</Text>
             )}
 
             {otpSent && (

@@ -20,7 +20,12 @@ import { CheckIcon } from '../components/icons/CheckIcon';
 import { MailIcon } from '../components/icons/MailIcon';
 import { useOtpLogin } from '../hooks/useOtpLogin';
 import type { AuthSession } from '../services/auth';
-import { validateCode, validateEmail } from '../utils/validation';
+import {
+  EMAIL_MAX_LENGTH,
+  normaliseEmail,
+  validateCode,
+  validateEmail,
+} from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -65,10 +70,16 @@ export function EmailLoginScreen({
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  /** The address field has been left once — its message shows from then on. */
+  const [emailTouched, setEmailTouched] = useState(false);
   const login = useOtpLogin(onVerified);
 
-  const address = email.trim();
+  /** Trimmed and lowercased — how the server stores and looks up an address. */
+  const address = normaliseEmail(email);
   const emailError = validateEmail(address);
+  /** Not while it is being typed: once the field is left. A server refusal of the address shows the same way. */
+  const shownEmailError =
+    login.fieldErrors.email ?? (emailTouched ? emailError : undefined);
   const codeError = validateCode(code, CODE_LENGTH);
   const codeSent = login.sent !== undefined;
   const busy = login.sending || login.verifying;
@@ -101,7 +112,7 @@ export function EmailLoginScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <View
           style={[
@@ -151,22 +162,29 @@ export function EmailLoginScreen({
                 setCode('');
                 login.reset();
               }}
+              onBlur={() => {
+                // Nothing typed is not a mistake yet — only a left-behind attempt is.
+                if (email.trim().length > 0) setEmailTouched(true);
+              }}
+              onSubmitEditing={handleSendCode}
               placeholder="you@example.com"
               placeholderTextColor={colors.text.placeholder}
               keyboardType="email-address"
               textContentType="emailAddress"
+              autoComplete="email"
               autoCapitalize="none"
               autoCorrect={false}
+              maxLength={EMAIL_MAX_LENGTH}
+              returnKeyType="send"
               accessibilityLabel="Email address"
               style={[
                 styles.emailInput,
-                // Only complain once there is something to complain about.
-                email.length > 0 && emailError !== undefined && styles.inputInvalid,
+                shownEmailError !== undefined && styles.inputInvalid,
               ]}
             />
 
-            {email.length > 0 && emailError !== undefined && (
-              <Text style={styles.fieldError}>{emailError}</Text>
+            {shownEmailError !== undefined && (
+              <Text style={styles.fieldError}>{shownEmailError}</Text>
             )}
 
             {codeSent && (

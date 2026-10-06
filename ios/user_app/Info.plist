@@ -24,6 +24,12 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tez</string>
+		<string>phonepe</string>
+		<string>paytmmp</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -37,6 +43,8 @@
 	<string>Shree Astro uses the camera so you can take a profile photo.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Shree Astro needs the microphone for voice consultations.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Shree Astro needs access to your photos so you can choose a profile photo.</string>
 	<key>UILaunchStoryboardName</key>

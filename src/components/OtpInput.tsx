@@ -42,7 +42,24 @@ export function OtpInput({
   const digits = value.padEnd(length, ' ').slice(0, length).split('');
 
   const setDigit = (index: number, raw: string) => {
-    const digit = raw.replace(/\D/g, '').slice(-1);
+    const typed = raw.replace(/\D/g, '');
+
+    /**
+     * More than a box's old digit plus one new one is a paste or the
+     * keyboard's one-time-code autofill: spread it across the boxes from this
+     * one on, rather than keeping only its last digit.
+     */
+    if (typed.length > 2) {
+      const pasted = typed.slice(0, length - index).split('');
+      const next = digits.map((d, i) =>
+        i >= index && i < index + pasted.length ? pasted[i - index] : d,
+      );
+      onChange(next.join('').trimEnd());
+      inputs.current[Math.min(index + pasted.length, length - 1)]?.focus();
+      return;
+    }
+
+    const digit = typed.slice(-1);
     const next = digits.map((d, i) => (i === index ? digit || ' ' : d));
     onChange(next.join('').trimEnd());
 
@@ -73,7 +90,8 @@ export function OtpInput({
           keyboardType="number-pad"
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
-          maxLength={1}
+          // One digit per box when typed; the full code is let through so a paste or autofill can be spread out.
+          maxLength={length}
           selectTextOnFocus
           accessibilityLabel={`Digit ${index + 1} of ${length}`}
           style={[styles.box, disabled ? styles.boxDisabled : styles.boxActive]}

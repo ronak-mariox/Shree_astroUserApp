@@ -268,10 +268,16 @@ export const fetchTransactions = async (filter: 'all' | 'added' | 'spent' = 'all
   if (filter === 'spent') return TRANSACTIONS.filter(row => !row.credit);
   return TRANSACTIONS;
 };
-export const startTopUp = async () => ({
-  transactionId: 't-1', reference: 'TXN-ABC123', orderId: 'ORD-1', amount: 500,
+/** A server with no gateway configured: services/payments.ts's payTopUp confirms these straight away, with no checkout. */
+export const startTopUp = async (_amount?: number, _couponCode?: string) => ({
+  transactionId: 't-1', reference: 'TXN-ABC123', orderId: 'ORD-1', amount: 500, gateway: 'none',
 });
-export const confirmTopUp = async () => ({ _id: 't-1', balanceAfter: 1750, status: 'success' });
+export const confirmTopUp = async (
+  _transactionId?: string,
+  _payment?: string | { razorpayPaymentId: string; razorpayOrderId: string; razorpaySignature: string },
+  _method?: string,
+) => ({ _id: 't-1', balanceAfter: 1750, status: 'success' });
+export const cancelTopUp = async (_transactionId?: string, _reason?: string) => {};
 
 export const precheckSession = async () => ({
   ok: true,
@@ -439,6 +445,14 @@ export const markNotificationsRead = async (notificationId?: string) => {
   }
   return { updated: NOTIFICATIONS.length, unread: NOTIFICATIONS.filter(row => !row.readAt).length };
 };
+/** services/push.ts files the FCM token through these; a test reads the calls. */
+export const registerDevice = jest.fn(async (_fcmToken: string, _platform: 'android' | 'ios' | 'web', _appVersion?: string) => ({
+  ok: true,
+  devices: 1,
+}));
+export const unregisterDevice = jest.fn(async (_fcmToken: string) => ({ ok: true }));
+export const sendTestPush = jest.fn(async () => ({ ok: true, devices: 1, push: [{ sent: true }] }));
+
 export const raiseTicket = jest.fn(async (issueType: string, description: string, chatId?: string) => ({
   id: 't-1',
   reference: 'TKT-ABC',

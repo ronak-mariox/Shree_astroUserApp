@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -11,11 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from './BrandGradient';
 import { CloseMarkIcon } from './icons/CloseMarkIcon';
-import {
-  RECHARGE_GST_PERCENT,
-  rechargeOptions,
-  type RechargeOption,
-} from '../data/wallet';
+import { rechargeOptions, type RechargeOption } from '../data/wallet';
 import { colors, fontFamily, radius, spacing } from '../theme';
 
 const CLOSE_SIZE = 16;
@@ -37,8 +33,9 @@ type RechargePopupProps = {
 };
 
 /**
- * The recharge tiers, what each pays out, and the payment breakdown — opened
- * from the low-balance banner's "Recharge" button.
+ * The recharge tiers and what will be charged — opened from the low-balance
+ * banner's "Recharge" button. What is charged and what is credited are the
+ * same amount (see RechargeOption in data/wallet.ts).
  * Figma: node 180:148242 ("Low Balence"), the sheet at 180:151497.
  */
 export function RechargePopup({
@@ -53,9 +50,6 @@ export function RechargePopup({
     () => rechargeOptions.find(option => option.popular) ?? rechargeOptions[0],
   );
 
-  const gst = useMemo(() => Math.round((selected.amount * RECHARGE_GST_PERCENT) / 100), [selected.amount]);
-  const payable = selected.amount + gst;
-  const credited = selected.amount + selected.bonus;
 
   return (
     <Modal
@@ -105,7 +99,7 @@ export function RechargePopup({
                     key={option.amount}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: isSelected }}
-                    accessibilityLabel={`₹${option.amount}, get ₹${option.bonus} extra`}
+                    accessibilityLabel={`₹${option.amount}`}
                     onPress={() => setSelected(option)}
                     style={styles.tileSlot}
                   >
@@ -116,9 +110,6 @@ export function RechargePopup({
                     )}
                     <View style={[styles.tile, isSelected && styles.tileSelected]}>
                       <Text style={styles.tileAmount}>{rupeeAmount(option.amount)}</Text>
-                      <View style={styles.bonusStrip}>
-                        <Text style={styles.bonusLabel}>Get {rupeeAmount(option.bonus)} Extra</Text>
-                      </View>
                     </View>
                   </Pressable>
                 );
@@ -128,10 +119,9 @@ export function RechargePopup({
             <View style={styles.congrats}>
               <View style={styles.congratsBar} />
               <View style={styles.congratsCopy}>
-                <Text style={styles.congratsTitle}>Congratulations 🎉</Text>
+                <Text style={styles.congratsTitle}>Wallet recharge</Text>
                 <Text style={styles.congratsBody}>
-                  You'll get <Text style={styles.congratsAmount}>{rupeeAmount(credited)}</Text> on the recharge of{' '}
-                  <Text style={styles.congratsAmount}>{rupeeAmount(selected.amount)}</Text>
+                  <Text style={styles.congratsAmount}>{rupeeAmount(selected.amount)}</Text> will be added to your wallet
                 </Text>
               </View>
             </View>
@@ -143,16 +133,12 @@ export function RechargePopup({
                 <Text style={styles.paymentLabel}>Recharge Amount</Text>
                 <Text style={styles.paymentValue}>{rupeeAmount(selected.amount)}</Text>
               </View>
-              <View style={styles.paymentRow}>
-                <Text style={styles.paymentLabel}>GST ({RECHARGE_GST_PERCENT}%)</Text>
-                <Text style={styles.paymentValue}>{rupeeAmount(gst)}</Text>
-              </View>
 
               <View style={styles.paymentDivider} />
 
               <View style={styles.paymentRow}>
                 <Text style={styles.totalLabel}>Total Amount</Text>
-                <Text style={styles.totalValue}>{rupeeAmount(payable)}</Text>
+                <Text style={styles.totalValue}>{rupeeAmount(selected.amount)}</Text>
               </View>
             </View>
 
@@ -284,23 +270,6 @@ const styles = StyleSheet.create({
   tileAmount: {
     fontFamily: fontFamily.bold,
     fontSize: 16,
-    color: colors.text.primary,
-  },
-  bonusStrip: {
-    position: 'absolute',
-    left: 1,
-    right: 1,
-    bottom: 1,
-    height: 20,
-    borderBottomLeftRadius: radius.action - 1,
-    borderBottomRightRadius: radius.action - 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.recharge.bonusStripVia,
-  },
-  bonusLabel: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10,
     color: colors.text.primary,
   },
   congrats: {

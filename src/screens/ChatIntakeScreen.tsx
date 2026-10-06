@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -9,6 +8,7 @@ import {
   Text,
   TextInput,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -39,13 +39,20 @@ import {
 } from '../data/consultPackages';
 import { useApi } from '../hooks/useApi';
 import { fetchRecentIntakeContacts, rupees } from '../services/api';
+import { useFormValidation } from '../hooks/useFormValidation';
 import {
+  NAME_MAX_LENGTH,
+  PLACE_MAX_LENGTH,
+  normaliseName,
+  validateDateOfBirth,
   validateName,
   validatePlace,
   validateRequired,
-  isFormValid,
+  validateTimeOfBirth,
   type FieldError,
 } from '../utils/validation';
+
+type Field = 'fullName' | 'dateOfBirth' | 'timeOfBirth' | 'birthPlace' | 'topic';
 import {
   colors,
   designFrame,
@@ -166,28 +173,37 @@ export function ChatIntakeScreen({
           return quote ? { mode: 'package', minutes: quote.minutes, price: quote.price } : PER_MINUTE;
         })()
       : PER_MINUTE;
-  /** Errors stay hidden until Connect is pressed, then follow every keystroke — same convention as ProfileCreationScreen. */
-  const [submitted, setSubmitted] = useState(false);
-
-  const errors: Record<string, FieldError> = {
-    fullName: validateName(fullName),
-    dateOfBirth: validateRequired(dateOfBirth, 'Date of birth'),
-    timeOfBirth: validateRequired(timeOfBirth, 'Time of birth'),
+  /**
+   * A field locked to the profile's own value is not re-checked here: the
+   * seeker could not change it anyway, and it is what the account holds.
+   */
+  const errors: Record<Field, FieldError> = {
+    fullName: fullNameLocked ? undefined : validateName(fullName),
+    dateOfBirth: dateOfBirthLocked ? undefined : validateDateOfBirth(dateOfBirth),
+    timeOfBirth: timeOfBirthLocked ? undefined : validateTimeOfBirth(timeOfBirth),
     birthPlace: validatePlace(birthPlace, 'Birth place'),
     topic: validateRequired(topic, 'Topic of concern'),
   };
-  const shown = (field: keyof typeof errors) => (submitted ? errors[field] : undefined);
+  /** Errors show once a field is left or Connect is pressed, then follow every keystroke — same convention as ProfileCreationScreen. */
+  const form = useFormValidation<Field>(
+    { fullName, dateOfBirth, timeOfBirth, birthPlace, topic },
+    errors,
+  );
+  const shown = form.error;
+
+  const closePicker = () => {
+    if (picker === 'date') form.touch('dateOfBirth');
+    if (picker === 'time') form.touch('timeOfBirth');
+    if (picker === 'topic') form.touch('topic');
+    setPicker(null);
+  };
 
   const connect = () => {
-    if (submitting) {
-      return;
-    }
-    setSubmitted(true);
-    if (!isFormValid(errors)) {
+    if (submitting || !form.submit()) {
       return;
     }
     onConnect?.({
-      fullName: fullName.trim(),
+      fullName: fullNameLocked ? fullName.trim() : normaliseName(fullName),
       dateOfBirth,
       timeOfBirth,
       gender,
@@ -233,9 +249,10 @@ export function ChatIntakeScreen({
 
       <KeyboardAvoidingView
         style={styles.body}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
+          ref={form.scrollRef}
           contentContainerStyle={[
             styles.bodyContent,
             { paddingBottom: spacing.xl + insets.bottom },
@@ -277,12 +294,23 @@ export function ChatIntakeScreen({
             </>
           )}
 
-          <View style={styles.form}>
-            <Field label="Full Name" error={shown('fullName')}>
+          <View style={styles.form} onLayout={form.locateContainer}>
+            <Field label="Full Name" error={shown('fullName')} onLayout={form.locate('fullName').onLayout}>
               <TextInput
+                ref={form.inputRef('fullName')}
                 accessibilityLabel="Full Name"
                 value={fullName}
                 onChangeText={setFullName}
+                onBlur={() => {
+                  if (!fullNameLocked) setFullName(normaliseName(fullName));
+                  form.touch('fullName');
+                }}
+                autoCapitalize="words"
+                autoComplete="name"
+                textContentType="name"
+                autoCorrect={false}
+                maxLength={NAME_MAX_LENGTH}
+                returnKeyType="next"
                 editable={!fullNameLocked}
                 placeholder="Mithu Kumar"
                 placeholderTextColor={colors.text.intakeLabel}
@@ -290,7 +318,13 @@ export function ChatIntakeScreen({
               />
             </Field>
 
-            <View style={styles.row}>
+            <View
+              style={styles.row}
+              onLayout={event => {
+                form.locate('dateOfBirth').onLayout(event);
+                form.locate('timeOfBirth').onLayout(event);
+              }}
+            >
               <Field label="Date of Birth" style={styles.rowItem} error={shown('dateOfBirth')}>
                 <SelectBox
                   label="Date of Birth"
@@ -344,18 +378,24 @@ export function ChatIntakeScreen({
               </View>
             </Field>
 
-            <Field label="Birth Place" error={shown('birthPlace')}>
+            <Field label="Birth Place" error={shown('birthPlace')} onLayout={form.locate('birthPlace').onLayout}>
               <TextInput
+                ref={form.inputRef('birthPlace')}
                 accessibilityLabel="Birth Place"
                 value={birthPlace}
                 onChangeText={setBirthPlace}
+                onBlur={() => form.touch('birthPlace')}
+                autoCapitalize="words"
+                autoCorrect={false}
+                maxLength={PLACE_MAX_LENGTH}
+                returnKeyType="done"
                 placeholder="Noida 62"
                 placeholderTextColor={colors.text.intakeLabel}
                 style={styles.input}
               />
             </Field>
 
-            <Field label="Topic of concern" error={shown('topic')}>
+            <Field label="Topic of concern" error={shown('topic')} onLayout={form.locate('topic').onLayout}>
               <SelectBox
                 label="Topic of concern"
                 value={topic}
@@ -408,12 +448,12 @@ export function ChatIntakeScreen({
           { key: 'year', values: YEAR_COLUMN },
         ]}
         value={{ day: '05', month: 'Jan', year: '2000' }}
-        onCancel={() => setPicker(null)}
+        onCancel={closePicker}
         onSubmit={chosen => {
           setDateOfBirth(
             formatBirthDate(chosen.day, chosen.month, chosen.year),
           );
-          setPicker(null);
+          closePicker();
         }}
       />
 
@@ -427,12 +467,12 @@ export function ChatIntakeScreen({
           { key: 'meridiem', values: MERIDIEM_COLUMN, narrow: true },
         ]}
         value={{ hour: '06', minute: '28', second: '55', meridiem: 'PM' }}
-        onCancel={() => setPicker(null)}
+        onCancel={closePicker}
         onSubmit={chosen => {
           setTimeOfBirth(
             formatBirthTime(chosen.hour, chosen.minute, chosen.meridiem),
           );
-          setPicker(null);
+          closePicker();
         }}
       />
 
@@ -441,10 +481,10 @@ export function ChatIntakeScreen({
         title="Topic of concern"
         options={TOPICS}
         value={topic}
-        onCancel={() => setPicker(null)}
+        onCancel={closePicker}
         onSubmit={chosen => {
           setTopic(chosen);
-          setPicker(null);
+          closePicker();
         }}
       />
     </View>
@@ -456,15 +496,17 @@ function Field({
   label,
   style,
   error,
+  onLayout,
   children,
 }: {
   label: string;
   style?: object;
   error?: string;
+  onLayout?: (event: LayoutChangeEvent) => void;
   children: React.ReactNode;
 }) {
   return (
-    <View style={style}>
+    <View style={style} onLayout={onLayout}>
       <Text style={styles.label}>{label}</Text>
       {children}
       {error !== undefined && <Text style={styles.error}>{error}</Text>}

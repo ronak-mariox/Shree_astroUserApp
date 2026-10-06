@@ -3,6 +3,7 @@ import {
   Image,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -80,6 +81,8 @@ type ProfileScreenProps = {
   };
   onSelectMenu?: (key: MenuKey) => void;
   onLogout?: () => void;
+  /** Pull-to-refresh: re-reads GET /users/me so the wallet, consult and kundli counts are current. */
+  onRefresh?: () => Promise<void>;
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
 };
@@ -93,10 +96,23 @@ export function ProfileScreen({
   profile,
   onSelectMenu,
   onLogout,
+  onRefresh,
   activeTab = 'profile',
   onSelectTab,
 }: ProfileScreenProps) {
   const insets = useSafeAreaInsets();
+  const [refreshing, setRefreshing] = React.useState(false);
+  const refresh = async () => {
+    if (!onRefresh) {
+      return;
+    }
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const name = user?.name || account.name;
   const email = user?.email || account.email;
@@ -121,7 +137,12 @@ export function ProfileScreen({
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" />
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={refresh} /> : undefined
+        }
+      >
         <View
           style={[
             styles.header,

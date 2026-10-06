@@ -20,7 +20,7 @@ import {
 } from '../data/wallet';
 import { useApi } from '../hooks/useApi';
 import { fetchSettings, fetchWallet, rupees } from '../services/api';
-import { validateAmount } from '../utils/validation';
+import { sanitizeAmountInput, validateAmount } from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -53,7 +53,7 @@ export function AddMoneyScreen({
   initialAmount = 200,
 }: AddMoneyScreenProps) {
   const insets = useSafeAreaInsets();
-  const [amount, setAmount] = useState(String(initialAmount));
+  const [amount, setAmount] = useState(sanitizeAmountInput(String(initialAmount)));
 
   const wallet = useApi(() => fetchWallet(), []);
   /** The admin-configurable real limits; the fixture's values hold until these load. */
@@ -63,6 +63,8 @@ export function AddMoneyScreen({
     max: settings.data?.maxRecharge ?? defaultAmountLimits.max,
   };
 
+  /** No amount over the maximum needs more digits than the maximum itself has. */
+  const maxDigits = String(Math.trunc(amountLimits.max)).length;
   const numericAmount = Number(amount) || 0;
   const amountError = validateAmount(numericAmount, amountLimits);
 
@@ -72,7 +74,7 @@ export function AddMoneyScreen({
 
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <View
           style={[
@@ -110,8 +112,11 @@ export function AddMoneyScreen({
               <Text style={styles.rupee}>₹</Text>
               <TextInput
                 value={amount}
-                onChangeText={text => setAmount(text.replace(/\D/g, ''))}
+                // Whole rupees only: digits, no leading zeros, no longer than the maximum.
+                onChangeText={text => setAmount(sanitizeAmountInput(text, maxDigits))}
                 keyboardType="number-pad"
+                maxLength={maxDigits + 2}
+                returnKeyType="done"
                 accessibilityLabel="Amount to add"
                 style={styles.amountInput}
               />

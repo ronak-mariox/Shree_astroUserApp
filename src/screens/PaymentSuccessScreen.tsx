@@ -37,7 +37,7 @@ export type Receipt = {
 
 type PaymentSuccessScreenProps = {
   amount: number;
-  /** The real confirmTopUp result. Falls back to the design fixture when absent. */
+  /** Printed from what `payTopUp` returned — the method is the one the gateway reported. Falls back to the design fixture when absent. */
   receipt?: Receipt;
   onGoToWallet?: () => void;
   onBackToHome?: () => void;

@@ -406,7 +406,9 @@ describe('live package session', () => {
       fireEnded({ reason: 'astrologer_ended' });
     });
     expect(textOf(tree)).not.toContain('How would you like to continue?');
-    expect(textOf(tree)).toContain('Chat Ended');
+    /** The seeker did nothing — the prompt (and the transcript) say who closed it. */
+    expect(textOf(tree)).toContain('Astro Rakesh has ended the chat');
+    expect(textOf(tree)).not.toContain('More Guidance Awaits You');
   });
 
   test('another device continuing resumes this screen too', async () => {
@@ -477,11 +479,11 @@ describe('live package session', () => {
     });
     expect(textOf(tree)).toContain('Recharge Now');
 
-    // Recharge ₹20 (+₹10 bonus) → ₹44: enough for a ₹30 minute, not for any package.
-    state = { ...state, package: { phase: 'awaiting_choice', awaitingChoiceSince: iso(0), endsAt: iso(0), ...options(44) } };
-    await press(tree, '₹20, get ₹10 extra');
+    // Recharge ₹20 → ₹34: enough for a ₹30 minute, not for any package.
+    state = { ...state, package: { phase: 'awaiting_choice', awaitingChoiceSince: iso(0), endsAt: iso(0), ...options(34) } };
+    await press(tree, '₹20');
     await press(tree, 'Pay Now');
-    expect(balance).toBe(44);
+    expect(balance).toBe(34);
     expect(textOf(tree)).toContain('How would you like to continue?');
 
     await press(tree, 'Continue per-minute · ₹30/min');

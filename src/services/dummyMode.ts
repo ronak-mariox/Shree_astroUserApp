@@ -28,11 +28,10 @@ export const USE_DUMMY_AUTH = false;
  * The wallet top-up flow (Wallet, Add Money, Payment, Processing, Success,
  * and Transaction History) is wired to, and verified against, the real
  * backend — same independence from `USE_DUMMY_DATA` as `USE_DUMMY_AUTH`
- * above. There is no real payment gateway behind it yet — see
- * services/wallet.service.js's own doc comment on the backend — a top-up is
- * credited to the wallet directly, but the two-step startTopUp/confirmTopUp
- * shape is kept exactly as a real gateway would need it, so wiring one in
- * later means filling the gap between those two calls, not a rewrite.
+ * above. Payment goes through Razorpay when the server has it configured
+ * (services/payments.ts's `payTopUp` runs startTopUp → checkout →
+ * confirmTopUp); with this flag on, the fixtures answer as a server with no
+ * gateway does — `gateway: 'none'`, confirmed straight away, no checkout.
  */
 export const USE_DUMMY_WALLET = false;
 
