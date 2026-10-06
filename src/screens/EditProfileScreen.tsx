@@ -28,8 +28,14 @@ import {
 import { account } from '../data/profile';
 import type { PhotoAsset } from '../services/auth';
 import { ApiError } from '../services/client';
+import { useFormValidation } from '../hooks/useFormValidation';
 import {
-  isFormValid,
+  EMAIL_MAX_LENGTH,
+  NAME_MAX_LENGTH,
+  PLACE_MAX_LENGTH,
+  normaliseEmail,
+  normaliseName,
+  serverFieldErrors,
   validateDateOfBirth,
   validateEmail,
   validateName,
@@ -37,6 +43,11 @@ import {
   validateTimeOfBirth,
   type FieldError,
 } from '../utils/validation';
+
+type Field = 'fullName' | 'email' | 'dateOfBirth' | 'timeOfBirth' | 'placeOfBirth';
+const FIELDS: readonly Field[] = ['fullName', 'email', 'dateOfBirth', 'timeOfBirth', 'placeOfBirth'];
+/** "06 : 30 AM" is 10 characters; a little room past that for a stray space. */
+const TIME_MAX_LENGTH = 12;
 import {
   colors,
   designFrame,
@@ -127,8 +138,6 @@ export function EditProfileScreen({
   const [gender, setGender] = useState<Gender>(initial?.gender ?? 'male');
   /** A freshly picked photo, previewed here until Save sends it up. */
   const [photo, setPhoto] = useState<PhotoAsset>();
-  /** Errors stay hidden until Save is pressed, then follow every keystroke. */
-  const [submitted, setSubmitted] = useState(false);
   /** True while the change is being sent, so Save cannot be pressed twice. */
   const [saving, setSaving] = useState(false);
   /** What the server refused with — a duplicate email, or being unreachable. */
@@ -160,15 +169,19 @@ export function EditProfileScreen({
     setGender(initial.gender ?? 'male');
   }, [initial]);
 
-  const errors: Record<string, FieldError> = {
+  const errors: Record<Field, FieldError> = {
     fullName: validateName(fullName),
     email: validateEmail(email),
     dateOfBirth: validateDateOfBirth(dateOfBirth),
     timeOfBirth: validateTimeOfBirth(timeOfBirth),
     placeOfBirth: validatePlace(placeOfBirth),
   };
-  const shown = (field: keyof typeof errors) =>
-    submitted ? errors[field] : undefined;
+  /** Errors show once a field is left or Save is pressed, then follow every keystroke. */
+  const form = useFormValidation<Field>(
+    { fullName, email, dateOfBirth, timeOfBirth, placeOfBirth },
+    errors,
+  );
+  const shown = form.error;
 
   const handlePickPhoto = async () => {
     const picked = await onPickPhoto?.();
@@ -178,19 +191,28 @@ export function EditProfileScreen({
   };
 
   const handleSave = async () => {
-    setSubmitted(true);
     setSaveError(undefined);
-    if (!isFormValid(errors) || saving) {
+    if (saving || !form.submit()) {
       return;
     }
 
     setSaving(true);
     try {
       await onSave?.(
-        { fullName, email, gender, dateOfBirth, timeOfBirth, placeOfBirth },
+        {
+          fullName: normaliseName(fullName),
+          email: normaliseEmail(email),
+          gender,
+          dateOfBirth,
+          timeOfBirth: timeOfBirth.trim(),
+          placeOfBirth: placeOfBirth.trim(),
+        },
         photo,
       );
     } catch (error) {
+      /** A field the server named (a taken email, say) is marked under that field. */
+      const fields = serverFieldErrors(error, FIELDS);
+      form.setServerErrors(fields);
       setSaveError(
         error instanceof ApiError
           ? error.message
@@ -210,6 +232,7 @@ export function EditProfileScreen({
         behavior="padding"
       >
         <ScrollView
+          ref={form.scrollRef}
           contentContainerStyle={{ paddingBottom: insets.bottom }}
           keyboardShouldPersistTaps="handled"
         >
@@ -260,21 +283,46 @@ export function EditProfileScreen({
             </View>
           </View>
 
-          <View style={styles.form}>
+          <View style={styles.form} onLayout={form.locateContainer}>
             <FormField
               label="Full Name"
               value={fullName}
               onChangeText={setFullName}
+              onBlur={() => {
+                setFullName(normaliseName(fullName));
+                form.touch('fullName');
+              }}
               autoComplete="name"
+              textContentType="name"
+              autoCapitalize="words"
+              autoCorrect={false}
+              maxLength={NAME_MAX_LENGTH}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => form.focus('email')}
+              inputRef={form.inputRef('fullName')}
+              onContainerLayout={form.locate('fullName').onLayout}
               error={shown('fullName')}
             />
             <FormField
               label="Email Address"
               value={email}
               onChangeText={setEmail}
+              onBlur={() => {
+                setEmail(email.trim());
+                form.touch('email');
+              }}
               keyboardType="email-address"
               autoCapitalize="none"
+              autoCorrect={false}
               autoComplete="email"
+              textContentType="emailAddress"
+              maxLength={EMAIL_MAX_LENGTH}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => form.focus('timeOfBirth')}
+              inputRef={form.inputRef('email')}
+              onContainerLayout={form.locate('email').onLayout}
               error={shown('email')}
             />
             <FormField
@@ -289,6 +337,7 @@ export function EditProfileScreen({
               accessibilityRole="button"
               accessibilityLabel="Date of Birth"
               onPress={() => setDatePickerOpen(true)}
+              {...form.locate('dateOfBirth')}
             >
               <View pointerEvents="none">
                 <FormField
@@ -305,7 +354,17 @@ export function EditProfileScreen({
               labelIcon={<ClockIcon size={16} />}
               value={timeOfBirth}
               onChangeText={setTimeOfBirth}
+              onBlur={() => form.touch('timeOfBirth')}
+              placeholder="06:30 AM"
               hint="Enter approximate time if exact time is unknown"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={TIME_MAX_LENGTH}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => form.focus('placeOfBirth')}
+              inputRef={form.inputRef('timeOfBirth')}
+              onContainerLayout={form.locate('timeOfBirth').onLayout}
               error={shown('timeOfBirth')}
             />
             <FormField
@@ -313,6 +372,13 @@ export function EditProfileScreen({
               labelIcon={<LocationPinIcon size={14} />}
               value={placeOfBirth}
               onChangeText={setPlaceOfBirth}
+              onBlur={() => form.touch('placeOfBirth')}
+              autoCapitalize="words"
+              autoCorrect={false}
+              maxLength={PLACE_MAX_LENGTH}
+              returnKeyType="done"
+              inputRef={form.inputRef('placeOfBirth')}
+              onContainerLayout={form.locate('placeOfBirth').onLayout}
               error={shown('placeOfBirth')}
             />
 
@@ -349,10 +415,14 @@ export function EditProfileScreen({
           { key: 'year', values: YEAR_COLUMN },
         ]}
         value={parseDob(dateOfBirth)}
-        onCancel={() => setDatePickerOpen(false)}
+        onCancel={() => {
+          setDatePickerOpen(false);
+          form.touch('dateOfBirth');
+        }}
         onSubmit={chosen => {
           setDateOfBirth(formatDob(chosen.day, chosen.month, chosen.year));
           setDatePickerOpen(false);
+          form.touch('dateOfBirth');
         }}
       />
     </View>

@@ -135,8 +135,14 @@ test('otp screen moves from the inert state to the sent state', async () => {
   await ReactTestRenderer.act(() => {
     number.props.onChangeText('12345');
   });
-  expect(JSON.stringify(tree.toJSON())).toContain('Enter a 10-digit mobile number');
+  // Not while the first digits are going in…
+  expect(JSON.stringify(tree.toJSON())).not.toContain('Enter a 10-digit mobile number');
   expect(buttons()[0].props.disabled).toBe(true);
+  // …but once the field is left.
+  await ReactTestRenderer.act(() => {
+    number.props.onBlur();
+  });
+  expect(JSON.stringify(tree.toJSON())).toContain('Enter a 10-digit mobile number');
 
   await ReactTestRenderer.act(() => {
     number.props.onChangeText('9876543210');
@@ -427,13 +433,17 @@ test('profile creation stops accepting digits well past a real phone number', as
   await ReactTestRenderer.act(() => phoneField().props.onChangeText('9876543210'));
   expect(phoneField().props.value).toBe('9876543210');
 
-  // The +91 country code is also accepted — twelve digits total, same as validatePhone itself allows.
+  // A pasted +91 country code, spaces or a leading 0 are stripped down to the ten local digits.
   await ReactTestRenderer.act(() => phoneField().props.onChangeText('919876543210'));
-  expect(phoneField().props.value).toBe('919876543210');
+  expect(phoneField().props.value).toBe('9876543210');
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('+91 98765 43210'));
+  expect(phoneField().props.value).toBe('9876543210');
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('098765 43210'));
+  expect(phoneField().props.value).toBe('9876543210');
 
-  // A thirteenth digit is refused outright — the field does not just wait for Continue to say so.
-  await ReactTestRenderer.act(() => phoneField().props.onChangeText('9198765432109'));
-  expect(phoneField().props.value).toBe('919876543210');
+  // An eleventh typed digit is refused outright — the field does not just wait for Continue to say so.
+  await ReactTestRenderer.act(() => phoneField().props.onChangeText('98765432109'));
+  expect(phoneField().props.value).toBe('9876543210');
 });
 
 test('profile creation carries a picked photo through to Continue', async () => {

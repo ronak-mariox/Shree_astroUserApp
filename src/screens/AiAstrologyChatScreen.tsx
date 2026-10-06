@@ -22,6 +22,7 @@ import { useDialog } from '../hooks/useDialog';
 import { assistant, openingMessages, suggestedPrompts } from '../data/chat';
 import { askAi, fetchAiThread } from '../services/api';
 import { ApiError } from '../services/client';
+import { MESSAGE_MAX_LENGTH, canSendMessage } from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -118,7 +119,7 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
     };
   }, [showDialog]);
 
-  const canSend = draft.trim().length > 0 && !sending;
+  const canSend = canSendMessage(draft) && !sending;
 
   const send = async (text: string) => {
     const body = text.trim();
@@ -232,6 +233,7 @@ export function AiAstrologyChatScreen({ onBack }: AiAstrologyChatScreenProps) {
             placeholder="Ask about your stars..."
             placeholderTextColor={colors.text.placeholder}
             accessibilityLabel="Ask about your stars"
+            maxLength={MESSAGE_MAX_LENGTH}
             multiline
             onContentSizeChange={event =>
               setInputHeight(event.nativeEvent.contentSize.height)

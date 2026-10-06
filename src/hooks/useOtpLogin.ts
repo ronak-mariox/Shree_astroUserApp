@@ -32,6 +32,12 @@ export type OtpLogin = {
    * screen answers it differently — with a way to Register, not a retry.
    */
   notRegistered: boolean;
+  /**
+   * The server's per-field messages from its last refusal (a 422's
+   * `fields` — `phone`, `email`, `code`), for the screen to print under the
+   * input they are about. Cleared by the next attempt and by `reset`.
+   */
+  fieldErrors: Record<string, string>;
   /** Seconds until Resend will be accepted; 0 means it is available. */
   resendIn: number;
   send: (identifier: LoginIdentifier) => Promise<void>;
@@ -52,6 +58,7 @@ export function useOtpLogin(
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string>();
   const [notRegistered, setNotRegistered] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [resendIn, setResendIn] = useState(0);
 
   /**
@@ -79,12 +86,14 @@ export function useOtpLogin(
     setSent(undefined);
     setError(undefined);
     setNotRegistered(false);
+    setFieldErrors({});
   }, []);
 
   const send = useCallback(async (identifier: LoginIdentifier) => {
     setSending(true);
     setError(undefined);
     setNotRegistered(false);
+    setFieldErrors({});
 
     try {
       setSent(await requestLoginOtp(identifier));
@@ -109,6 +118,7 @@ export function useOtpLogin(
       }
 
       setNotRegistered(failure?.code === 'account_not_found');
+      setFieldErrors(failure?.fields ?? {});
       setError(failure?.message ?? 'Something went wrong. Please try again.');
     } finally {
       setSending(false);
@@ -119,6 +129,7 @@ export function useOtpLogin(
     async (identifier: LoginIdentifier, code: string) => {
       setVerifying(true);
       setError(undefined);
+      setFieldErrors({});
 
       try {
         const session = await verifyLoginOtp(identifier, code);
@@ -131,6 +142,7 @@ export function useOtpLogin(
          * sentence is the more useful of the two to print.
          */
         setError(failure?.message ?? 'Something went wrong. Please try again.');
+        setFieldErrors(failure?.fields ?? {});
       } finally {
         setVerifying(false);
       }
@@ -138,5 +150,5 @@ export function useOtpLogin(
     [onSignedIn],
   );
 
-  return { sent, sending, verifying, error, notRegistered, resendIn, send, verify, reset };
+  return { sent, sending, verifying, error, notRegistered, fieldErrors, resendIn, send, verify, reset };
 }

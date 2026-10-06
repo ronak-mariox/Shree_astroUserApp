@@ -32,6 +32,7 @@ import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import { portraitOf } from '../utils/images';
+import { SEARCH_MAX_LENGTH } from '../utils/validation';
 import {
   colors,
   designFrame,
@@ -144,6 +145,11 @@ export function FindAstrologersScreen({
             value={query}
             onChangeText={setQuery}
             placeholder="Search astrologers, specializations..."
+            // A search is never refused — only trimmed before it is sent.
+            maxLength={SEARCH_MAX_LENGTH}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
             placeholderTextColor={colors.text.onYellowMuted}
             accessibilityLabel="Search astrologers"
             style={styles.searchInput}

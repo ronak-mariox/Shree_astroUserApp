@@ -15,21 +15,24 @@ import { GenderSelector, type Gender } from '../components/GenderSelector';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { StepIndicator } from '../components/StepIndicator';
 import type { PhotoAsset } from '../services/auth';
+import { useFormValidation } from '../hooks/useFormValidation';
 import {
-  digitsOf,
-  isFormValid,
+  EMAIL_MAX_LENGTH,
+  NAME_MAX_LENGTH,
+  normaliseEmail,
+  normaliseName,
+  sanitizePhoneInput,
   validateEmail,
   validateName,
   validatePhone,
   type FieldError,
 } from '../utils/validation';
-
-/** A bare 10-digit number, or one with a leading 91 country code — validatePhone accepts both, so typing is capped here at whichever is longer, not just 10. */
-const MAX_PHONE_DIGITS = 12;
 import { colors, designFrame, spacing, typography } from '../theme';
 
 /** Top padding Figma drew, measured from the top of the status bar. */
 const DESIGN_PADDING_TOP = 56;
+
+type Field = 'fullName' | 'email' | 'phoneNumber' | 'gender';
 
 export type Profile = {
   fullName: string;
@@ -71,28 +74,28 @@ export function ProfileCreationScreen({
   const insets = useSafeAreaInsets();
   const [fullName, setFullName] = useState(initialProfile?.fullName ?? '');
   const [email, setEmail] = useState(initialProfile?.email ?? '');
-  const [phoneNumber, setPhoneNumber] = useState(initialProfile?.phoneNumber ?? '');
+  const [phoneNumber, setPhoneNumber] = useState(
+    sanitizePhoneInput(initialProfile?.phoneNumber ?? ''),
+  );
   const [gender, setGender] = useState<Gender | undefined>(initialProfile?.gender);
-  /** Errors stay hidden until Continue is pressed, then follow every keystroke. */
-  const [submitted, setSubmitted] = useState(false);
   /** The chosen photo, carried to the register call at the end of the wizard. */
   const [photo, setPhoto] = useState<PhotoAsset | undefined>(initialPhoto);
 
-  const errors: Record<string, FieldError> = {
+  const errors: Record<Field, FieldError> = {
     fullName: validateName(fullName),
     email: validateEmail(email),
     phoneNumber: validatePhone(phoneNumber),
     gender: gender === undefined ? 'Select a gender' : undefined,
   };
-  const shown = (field: keyof typeof errors) =>
-    submitted ? errors[field] : undefined;
+  /** Errors show once a field is left or Continue is pressed, then follow every keystroke. */
+  const form = useFormValidation<Field>(
+    { fullName, email, phoneNumber, gender },
+    errors,
+  );
+  const shown = form.error;
 
-  /** Stops well past what a real number could ever need, rather than the field accepting keystrokes forever. */
-  const handlePhoneChange = (text: string) => {
-    if (digitsOf(text).length <= MAX_PHONE_DIGITS) {
-      setPhoneNumber(text);
-    }
-  };
+  /** A pasted "+91 98765 43210" or "098765 43210" lands as its ten local digits; nothing past ten is kept. */
+  const handlePhoneChange = (text: string) => setPhoneNumber(sanitizePhoneInput(text));
 
   const handlePickPhoto = async () => {
     /**
@@ -111,12 +114,16 @@ export function ProfileCreationScreen({
   };
 
   const handleContinue = () => {
-    setSubmitted(true);
-    if (!isFormValid(errors)) {
+    if (!form.submit()) {
       return;
     }
     onContinue?.(
-      { fullName: fullName.trim(), email: email.trim(), phoneNumber, gender },
+      {
+        fullName: normaliseName(fullName),
+        email: normaliseEmail(email),
+        phoneNumber,
+        gender,
+      },
       photo,
     );
   };
@@ -130,6 +137,7 @@ export function ProfileCreationScreen({
         behavior="padding"
       >
         <ScrollView
+          ref={form.scrollRef}
           contentContainerStyle={{ paddingBottom: insets.bottom }}
           keyboardShouldPersistTaps="handled"
         >
@@ -152,39 +160,69 @@ export function ProfileCreationScreen({
             </View>
           </View>
 
-          <View style={styles.form}>
+          <View style={styles.form} onLayout={form.locateContainer}>
             <FormField
               label="Full Name"
               value={fullName}
               onChangeText={setFullName}
+              onBlur={() => {
+                setFullName(normaliseName(fullName));
+                form.touch('fullName');
+              }}
               placeholder="Arjun Sharma"
               autoComplete="name"
               textContentType="name"
+              autoCapitalize="words"
+              autoCorrect={false}
+              maxLength={NAME_MAX_LENGTH}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => form.focus('email')}
+              inputRef={form.inputRef('fullName')}
+              onContainerLayout={form.locate('fullName').onLayout}
               error={shown('fullName')}
             />
             <FormField
               label="Email Address"
               value={email}
               onChangeText={setEmail}
+              onBlur={() => {
+                setEmail(email.trim());
+                form.touch('email');
+              }}
               placeholder="arjun@example.com"
               keyboardType="email-address"
               autoCapitalize="none"
+              autoCorrect={false}
               autoComplete="email"
               textContentType="emailAddress"
+              maxLength={EMAIL_MAX_LENGTH}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => form.focus('phoneNumber')}
+              inputRef={form.inputRef('email')}
+              onContainerLayout={form.locate('email').onLayout}
               error={shown('email')}
             />
             <FormField
               label="Phone Number"
               value={phoneNumber}
               onChangeText={handlePhoneChange}
-              placeholder="+91 98765 43210"
-              keyboardType="phone-pad"
+              onBlur={() => form.touch('phoneNumber')}
+              placeholder="98765 43210"
+              hint="10-digit Indian mobile number"
+              keyboardType="number-pad"
               autoComplete="tel"
               textContentType="telephoneNumber"
+              // Room for a pasted "+91 98765 43210"; the handler keeps only the ten digits.
+              maxLength={16}
+              returnKeyType="done"
+              inputRef={form.inputRef('phoneNumber')}
+              onContainerLayout={form.locate('phoneNumber').onLayout}
               error={shown('phoneNumber')}
             />
 
-            <View>
+            <View {...form.locate('gender')}>
               <Text style={styles.genderLabel}>Gender</Text>
               <GenderSelector
                 value={gender}
@@ -192,7 +230,7 @@ export function ProfileCreationScreen({
                 style={styles.genderOptions}
               />
               {shown('gender') !== undefined && (
-                <Text style={styles.error}>{errors.gender}</Text>
+                <Text style={styles.error}>{shown('gender')}</Text>
               )}
             </View>
 

@@ -58,6 +58,7 @@ import {
   type ChatMessage,
 } from '../services/api';
 import { ApiError } from '../services/client';
+import { MESSAGE_MAX_LENGTH, canSendMessage } from '../utils/validation';
 import { PaymentUnconfirmedError, describePaymentError, payTopUp } from '../services/payments';
 import {
   joinVoiceCall,
@@ -774,7 +775,7 @@ export function ConsultationChatScreen({
 
   const send = async () => {
     const body = draft.trim();
-    if (body.length === 0 || composerLocked) {
+    if (!canSendMessage(body) || composerLocked) {
       return;
     }
     setDraft('');
@@ -1152,6 +1153,7 @@ export function ConsultationChatScreen({
                 placeholderTextColor={colors.text.composerHint}
                 style={styles.input}
                 editable={!composerLocked}
+                maxLength={MESSAGE_MAX_LENGTH}
                 multiline
               />
             </View>
@@ -1159,8 +1161,8 @@ export function ConsultationChatScreen({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Send"
-              accessibilityState={{ disabled: draft.trim().length === 0 || composerLocked }}
-              disabled={draft.trim().length === 0 || composerLocked}
+              accessibilityState={{ disabled: !canSendMessage(draft) || composerLocked }}
+              disabled={!canSendMessage(draft) || composerLocked}
               onPress={send}
               style={({ pressed }) => [styles.send, pressed && styles.pressed]}
             >
