@@ -231,6 +231,24 @@ function App() {
    * screens fall back to their design fixtures rather than showing nothing.
    */
   const [profile, setProfile] = useState<any>();
+  /**
+   * Re-reads GET /users/me — the Profile tab's wallet, consult and kundli
+   * counts change elsewhere (a top-up, a finished consultation, a new kundli),
+   * so the tab reads them fresh each time it opens and on pull-to-refresh.
+   */
+  const refreshProfile = useCallback(async () => {
+    try {
+      setProfile(await fetchProfile());
+    } catch {
+      /** Keep what is on screen; the next open or pull tries again. */
+    }
+  }, []);
+  const profileOwnerId = session?.user?.id;
+  useEffect(() => {
+    if (route === 'profile' && profileOwnerId) {
+      refreshProfile();
+    }
+  }, [route, profileOwnerId, refreshProfile]);
   /** The rashi Home resolved, carried into the full reading so it need not be looked up twice. */
   const [horoscopeSign, setHoroscopeSign] = useState<string>();
   /**
@@ -1470,6 +1488,7 @@ function App() {
         <ProfileScreen
           user={session?.user}
           profile={profile}
+          onRefresh={refreshProfile}
           activeTab="profile"
           onSelectTab={selectTab}
           onLogout={handleLogout}
